@@ -1,0 +1,3 @@
+#!/usr/bin/env bash
+# Dummy Case-study 2 driver script
+echo "Case Study 2 sample script. Currently does nothing."

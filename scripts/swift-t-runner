@@ -1,0 +1,41 @@
+#!/usr/bin/env bash 
+#
+# This script wraps the swift-t invocation after parsing the swift-t config
+# file
+#
+# It is intended to be used in a #! line at the start of a swift-script,
+# taking the script that is passed to it
+#
+
+#echo "runner called"
+#set -x 
+. ${PLAN4RESROOT:?PLAN4RESROOT not set}/config/plan4res.conf
+. ${PLAN4RESROOT:?PLAN4RESROOT not set}/config/${P4R_SWIFTT_CONF}
+
+# A trace utility. Enable by setting P4R_TRACE=1, disable by setting
+# P4R_TRACE=0
+function trace () {
+        if test ${P4R_TRACE:-0} -eq 1; then
+                echo ";; $@"
+        fi
+}
+
+# we need to compile first (without mpi), then run (with mpi)
+TICFILE=$(mktemp)
+function cleanup {
+  trace "Removing temporary file ${TICFILE}"
+  rm -f "${TICFILE}"
+}
+trap cleanup EXIT
+
+set -e
+trace "Compiling $@ (to ${TICFILE})"
+stc \
+    -p ${P4R_SWIFTT_VERBOSE:-""} \
+    -I ${PLAN4RESROOT}/scripts/swift \
+    $@ ${TICFILE}
+
+trace "Running ${TICFILE} on ${P4R_SWIFTT_NUMRANKS} ranks"
+mpiexec \
+	-n ${P4R_SWIFTT_NUMRANKS} \
+	turbine ${TICFILE}

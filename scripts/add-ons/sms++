@@ -1,0 +1,226 @@
+#!/usr/bin/env add-on
+
+SHELL = /bin/sh
+
+INSTALLDIR     = ${ADDONS_INSTALLDIR}
+INSTALLDIR_TMP = ${ADDONS_INSTALLDIR_TMP}
+MAKEFILE_NAME  = $(CURDIR)/$(word $(words $(MAKEFILE_LIST)),$(MAKEFILE_LIST))
+PKGNAME       := $(notdir $(MAKEFILE_NAME))
+
+BUILD      ?= Release
+SCIP       ?= 0
+
+PKGURL     := https://gitlab.com/smspp
+UMBRELLA   := smspp-project
+
+# Copy binaries and examples from these sub-modules
+UCBLOCK    := UCBlock
+
+BUILDDIR   := build_$(BUILD)
+
+# StOpt and SCIP Installation directories
+STOPTDIR   := $(INSTALLDIR)/stopt
+SCIPDIR    := $(INSTALLDIR)/scip
+
+# CPLEX Installation directory
+CPLEXDIR   := $(INSTALLDIR_TMP)/cplex
+
+# CoinUtils, Osi installations
+COINORURL  := https://www.coin-or.org/download/source
+COINORDIR  := $(realpath $(INSTALLDIR_TMP))
+#
+COINNAME   := CoinUtils
+COINVER    := 2.11.4
+#
+OSINAME    := Osi
+OSIVER     := 0.108.6
+#
+CLPNAME    := Clp
+CLPVER     := 1.17.6
+
+.PHONY: install update compile getdev clean status uninstall help
+
+VARHELP += " CPLEX=<CPLEX installer file> : Specify the CPLEX installer file."
+VARHELP += " BUILD=<Release or Debug>     : Specify the build mode (Release or Debug). Default is $(BUILD)."
+VARHELP += " SCIP=<0|1>                   : Link with SCIP if set to 1. Default is not to link."
+
+install: $(INSTALLDIR)/$(PKGNAME)
+$(INSTALLDIR)/$(PKGNAME): compile
+	@echo "Install $(PKGNAME) add-on"
+	@rm -rf $(INSTALLDIR_TMP)/$(PKGNAME)
+	@mkdir -p $(INSTALLDIR_TMP)/$(PKGNAME)
+	@cd $(PKGNAME)/$(UMBRELLA)/$(BUILDDIR) && make -j$(getconf _NPROCESSORS_ONLN) install
+	@mkdir -p $(INSTALLDIR_TMP)/$(PKGNAME)/examples
+	@mkdir -p $(INSTALLDIR_TMP)/$(PKGNAME)/examples/ucblock
+	@cp -r $(PKGNAME)/$(UMBRELLA)/$(UCBLOCK)/netCDF_files $(INSTALLDIR_TMP)/$(PKGNAME)/examples/ucblock
+	@cd $(PKGNAME)/$(PKGVER) && echo "installed" > $(INSTALLDIR_TMP)/$(PKGNAME)/VERSION
+	@cd $(PKGNAME)/$(UMBRELLA) && echo "Umbrella version $$(git describe --always --tags)" >> $(INSTALLDIR_TMP)/$(PKGNAME)/VERSION
+	@cd $(PKGNAME)/$(UMBRELLA) && git submodule foreach --recursive "git describe --always --tags" >> $(INSTALLDIR_TMP)/$(PKGNAME)/VERSION
+ifneq ($(INSTALLDIR),$(INSTALLDIR_TMP))
+	@rsync -au --copy-links $(INSTALLDIR_TMP)/$(PKGNAME) $(INSTALLDIR)
+	@rm -rf $(INSTALLDIR_TMP)/$(PKGNAME)
+endif
+HELP += "  install : Install $(PKGNAME) add-on. Need to specify CPLEX=<CPLEX installer file>. StOpt add-on must be installed first."
+HELP += "            Use SCIP=1 to link with it (must be installed first)." ####
+HELP += "            Use BUILD=Release or Debug to choose build mode (default: Release)." ####
+
+$(STOPTDIR):
+	@echo "No StOpt installation found at $@. Please install the stopt add-on first!"
+	@exit 1
+
+ifeq ($(SCIP),1)
+$(SCIPDIR):
+	@echo "No SCIPT installation found at $@. Please install the scip add-on first!"
+	@exit 1
+endif
+
+ifeq (,$(CPLEX))
+# If CPLEX variable is not set, then any previous CPLEX installation is reused
+update: uninstall_keep_cplex | install
+uninstall_keep_cplex: keep_cplex | uninstall
+	@if test -d "$(CPLEXDIR).bak" ; then mv $(CPLEXDIR).bak $(CPLEXDIR) ; fi
+keep_cplex:
+	@if test -d "$(CPLEXDIR)" ; then mv $(CPLEXDIR) $(CPLEXDIR).bak ; fi
+else
+update: uninstall | install
+endif
+HELP += "   update : Update and re-install $(PKGNAME) add-on. StOpt add-on must be installed first."
+HELP += "            Use SCIP=1 to link with it (must be installed first)." ####
+HELP += "            Keep previous CPLEX installation (if any), otherwise required to specific CPLEX=<CPLEX installer file>."  ####
+
+# Build Umbrella project
+CMAKEFLAGS = -Wno-dev \
+	     -DCMAKE_EXPORT_PACKAGE_REGISTRY=ON \
+	     -DBOOST_ROOT=${BOOST_PATH} \
+	     -DEigen3_ROOT=${EIGEN_PATH}/share/eigen3/cmake \
+	     -DStOpt_ROOT=$(STOPTDIR) \
+	     -DnetCDFCxx_ROOT=${P4R_INSTALL}/netcdf \
+	     -DCPLEX_ROOT=$(CPLEXDIR) \
+	     -DCoinUtils_ROOT=$(COINORDIR)/$(COINNAME) \
+	     -DOsi_ROOT=$(COINORDIR)/$(OSINAME) \
+	     -DClp_ROOT=$(COINORDIR)/$(CLPNAME) \
+	     -DWHICH_OSI_QP=1 \
+	     -DWHICH_OSI_MP=1 \
+	     -DCMAKE_BUILD_TYPE=$(BUILD) \
+	     -DCMAKE_C_COMPILER=/usr/bin/clang \
+	     -DCMAKE_CXX_COMPILER=${P4R_INSTALL}/mpi/bin/mpicxx \
+	     -DCMAKE_INSTALL_PREFIX=$(INSTALLDIR_TMP)/$(PKGNAME)
+ifeq ($(SCIP),1)
+CMAKEFLAGS += -DSCIP_DIR=$(SCIPDIR)/lib/cmake/scip
+compile: $(SCIPDIR)
+endif
+compile: $(CPLEXDIR) $(STOPTDIR) $(PKGNAME)/$(UMBRELLA) | $(COINORDIR)/$(CLPNAME)
+	@mkdir -p $(PKGNAME)/$(UMBRELLA)/$(BUILDDIR)
+	cd $(PKGNAME)/$(UMBRELLA)/$(BUILDDIR) && \
+	cmake $(CMAKEFLAGS) .. && \
+	make -j$(getconf _NPROCESSORS_ONLN) install
+HELP += "  compile : Compile $(PKGNAME) add-on (no installation). Need to specify CPLEX=<CPLEX installer file>. StOpt add-on must be installed first."
+HELP += "            Use SCIP=1 to link with it (must be installed first)." ####
+HELP += "            Use BUILD=Release or Debug to choose build mode (default: Release)." ####
+
+# Download Umbrella project code
+$(PKGNAME)/$(UMBRELLA):
+	@rm -rf $(dir $@)
+	git config --global credential.helper 'cache --timeout=500' # avoid to repeat password per each submodule
+	git clone --recurse-submodules $(PKGURL)/$(notdir $@).git $@
+	cd $@ && git submodule update --init --recursive
+# Use specific commit
+#	@cd $@ && git checkout 57bc84967280c0d6a09884566d7fbba8a33ec8ce && git submodule update --init --recursive
+
+getdev: $(PKGNAME)/$(UMBRELLA)
+	@cd $(PKGNAME)/$(UMBRELLA) && git fetch && git checkout develop && git pull origin develop && \
+	git submodule update --init --recursive && \
+	git submodule foreach --recursive "git checkout develop || git checkout master" && git submodule foreach --recursive "git pull"
+HELP += "   getdev : Pull the $(PKGNAME) develop branch."
+
+clean:
+	@rm -rf $(PKGNAME)/$(UMBRELLA)/$(BUILDDIR)
+HELP += "    clean : Clean the $(PKGNAME) build directory."
+
+#########################
+# Coin-OR Installation
+#########################
+
+define coinor_install
+cd $(PKGNAME) && \
+rm -rf $1-$2.tgz $1-$2 && \
+wget -q $(COINORURL)/$1/$1-$2.tgz && \
+tar xf $1-$2.tgz && \
+cd $1-$2 && \
+mkdir $(BUILDDIR) && cd $(BUILDDIR) && \
+../configure --prefix=$(COINORDIR)/$1 --enable-static --disable-shared $3 CC=/usr/bin/clang CXX=/usr/bin/clang++ && \
+make -j$(getconf _NPROCESSORS_ONLN) install 2> make.log
+endef
+
+$(COINORDIR)/$(CLPNAME): $(COINORDIR)/$(OSINAME)
+	$(call coinor_install,$(CLPNAME),$(CLPVER),\
+	--with-coinutils-lib="-L$(COINORDIR)/$(COINNAME)/lib -lCoinUtils" \
+	--with-coinutils-incdir="$(COINORDIR)/$(COINNAME)/include/coin" \
+	--with-osi-lib="-L$(COINORDIR)/$(OSINAME)/lib -lOsi" \
+	--with-osi-incdir="$(COINORDIR)/$(OSINAME)/include/coin")
+
+$(COINORDIR)/$(OSINAME): $(COINORDIR)/$(COINNAME) $(CPLEXDIR)
+	$(call coinor_install,$(OSINAME),$(OSIVER),\
+	--with-coinutils-lib="-L$(COINORDIR)/$(COINNAME)/lib -lCoinUtils" \
+	--with-coinutils-incdir="$(COINORDIR)/$(COINNAME)/include/coin" \
+	--with-cplex-lib="-L$(CPLEXDIR)/cplex/lib/x86-64_linux/static_pic -lcplex -lpthread -lm -ldl" \
+	--with-cplex-incdir="$(CPLEXDIR)/cplex/include/ilcplex")
+
+$(COINORDIR)/$(COINNAME):
+	$(call coinor_install,$(COINNAME),$(COINVER))
+
+#####################
+# CPLEX Installation
+#####################
+
+$(CPLEXDIR):
+	@if test -f ${PLAN4RESROOT}/$(CPLEX); then \
+	    	mkdir -p $(PKGNAME) ; \
+	   	cp ${PLAN4RESROOT}/$(CPLEX) $(PKGNAME) ; \
+		cd $(PKGNAME) ; \
+		chmod +x $(notdir $(CPLEX)) ; \
+		rm -rf $@ ; \
+		echo "INSTALLER_UI=silent" >> cplex_installer.properties ; \
+		echo "LICENSE_ACCEPTED=TRUE" >> cplex_installer.properties ; \
+		echo "USER_INSTALL_DIR=$@" >> cplex_installer.properties ; \
+		echo "CHECK_DISK_SPACE=OFF" >> cplex_installer.properties ; \
+		./$(notdir $(CPLEX)) -f cplex_installer.properties ; \
+	else	       				   		  \
+		echo "Installation file for CPLEX not found!" ;	\
+		echo "Check the CPLEX variable!" ;     		\
+		exit 1 ;	    	    			\
+	fi
+
+#####################
+# Other targets
+#####################
+
+status:
+	@if test -f $(INSTALLDIR)/$(PKGNAME)/VERSION ; then \
+	  cat $(INSTALLDIR)/$(PKGNAME)/VERSION ; \
+	else \
+	  echo "not installed"; \
+	fi
+HELP += "   status : Print $(PKGNAME) version"
+
+######
+###### Common to all add-ons
+######
+
+uninstall:
+	@echo "Remove $(PKGNAME) add-on build and installation directories"
+	@rm -rf $(PKGNAME)
+	@rm -rf $(INSTALLDIR)/$(PKGNAME)
+	@rm -rf $(INSTALLDIR_TMP)/$(PKGNAME)
+	@rm -rf $(CPLEXDIR)
+	@rm -rf $(COINORDIR)/$(CLPNAME)
+	@rm -rf $(COINORDIR)/$(OSINAME)
+	@rm -rf $(COINORDIR)/$(COINNAME)
+HELP += "uninstall : Remove $(PKGNAME) build and installation directories"
+
+help:
+	@echo "Targets for $(PKGNAME) add-on (first target as default):"
+	@printf "   %s\n" $(HELP)
+	@echo "Variables for $(PKGNAME) add-on:"
+	@printf "   %s\n" $(VARHELP)
+HELP += "     help : This help"

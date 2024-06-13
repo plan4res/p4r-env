@@ -1,0 +1,47 @@
+#!/usr/bin/env bash
+#
+# This script wraps the make invocation after parsing the plan4res config
+# file
+#
+# It is intended to be used in a #! line at the start of a make-script,
+# taking the script that is passed to it
+#
+
+. ${PLAN4RESROOT:?PLAN4RESROOT not set}/config/plan4res.conf
+
+# A trace utility. Enable by setting P4R_TRACE=1, disable by setting
+# P4R_TRACE=0
+function trace () {
+        if test ${P4R_TRACE:-0} -eq 1; then
+                echo ";; $@"
+        fi
+}
+
+set -e
+
+if test $# -lt 1; then
+    trace "Inspecting add-on recipes"
+    echo "No add-on specified. The following add-on recipes are known or already installed:"
+    RECIPES=`find ${ADDONS_DIR} -maxdepth 1 -not -name '.*' -type f -perm -111 -print0 |xargs -0 -n1 basename`
+
+    for r in ${RECIPES}; do
+        S=`${ADDONS_DIR}/$r status`
+        echo -e "$r\t\t: $S"
+    done
+
+    echo
+    echo "Use 'add-on <add-on name>' to install an add-on."
+    echo "Use 'add-on <add-on name> help' to see a list of specific options per each add-on."
+    echo
+
+    exit 0
+fi
+
+trace "Run make on $@"
+
+mkdir -p ${ADDONS_CACHEDIR}
+RECIPE=`basename $1`
+shift
+make -j1 --no-print-directory -C ${ADDONS_CACHEDIR} -f ${ADDONS_DIR}/${RECIPE} ADDONS_INSTALLDIR_TMP=${ADDONS_INSTALLDIR_TMP} $@
+
+exit 0

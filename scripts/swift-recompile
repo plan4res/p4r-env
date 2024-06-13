@@ -1,0 +1,20 @@
+#!/usr/bin/env bash 
+#
+# This script iterates through all .swift files in the p4r subdir and
+# recompiles them using stc
+#
+# The resulting .tic files are placed near the swift
+# files, and will avoid # recompile of library functions at script run time.
+#
+# Be careful with stale files, this is not meant for development sites
+
+set -x 
+. ${PLAN4RESROOT:?PLAN4RESROOT not set}/config/plan4res.conf
+. ${PLAN4RESROOT:?PLAN4RESROOT not set}/config/${P4R_SWIFTT_CONF}
+
+STC_CALL="stc -V -u -I ${PLAN4RESROOT}/scripts/swift"
+find ${PLAN4RESROOT}/scripts/swift/p4r -name \*.swift -print0 |\
+  xargs -0 -n1 ${STC_CALL}
+
+${STC_CALL} ${PLAN4RESROOT}/scripts/swift/p4r.swift
+

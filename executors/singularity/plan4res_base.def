@@ -1,0 +1,87 @@
+Bootstrap: docker
+From: debian:buster
+
+%setup
+    mkdir ${SINGULARITY_ROOTFS}/p4r
+
+%files
+    tests /p4r/tests_singularity
+
+# General Update and Installations (no MPI related)
+%post -c /bin/bash
+    apt-get update && apt-get -y upgrade --no-install-recommends
+    apt-get -y install --no-install-recommends \
+	               build-essential file ca-certificates \
+		       wget less git man-db locales \
+                       openssh-client libssl-dev sbcl vim \
+		       autotools-dev automake \
+		       curl libcurl4-openssl-dev \
+		       unzip rsync libtool pkg-config debconf-utils
+    # ensure we have no DASH as /bin/sh
+    echo "dash dash/sh boolean false" | debconf-set-selections
+    # octave
+    apt-get -y install --no-install-recommends octave
+    # Python
+    apt-get -y install --no-install-recommends \
+                       python3 python3-dev python3-pip
+    python3 -m pip install --upgrade pip
+    python3 -m pip install setuptools
+    python3 -m pip install openpyxl scipy pandas pyyaml matplotlib \
+                           geopandas fiona descartes shapely pillow \
+                           mapclassify numpy \
+                           requests requests-toolbelt \
+                           rtree pygeos wheel
+
+    # Install swift dependencies (see http://swift-lang.github.io/swift-t/guide.html#install_source)
+    apt-get -y install --no-install-recommends \
+	               tcl8.6 tcl8.6-dev swig zsh ant
+
+    # Install transformation tool requirements
+    apt-get -y install --no-install-recommends libxerces-c-dev xsdcxx
+
+    # CLANG (used by SMS++)
+    apt-get -y install --no-install-recommends clang libomp-dev
+
+    # Debugging tools
+    apt-get -y install --no-install-recommends \
+	               gdb gdbserver valgrind tmux screen
+
+    # Other packages
+    apt-get -y install --no-install-recommends \
+	               libgmp3-dev libreadline-dev libncurses5-dev libgsl-dev # SCIP requirements
+    apt-get -y install --no-install-recommends \
+                       libbz2-dev # StOpt requirements
+    apt-get -y install --no-install-recommends \
+	               gfortran libopenblas-dev # IPOPT requirements
+
+    # Cleanup
+    apt-get purge -y openmpi-bin openmpi-common
+    apt-get purge -y python2.7 # Uninstall python2
+    apt-get autoremove -y
+    # Update default python to v3
+    update-alternatives --install /usr/bin/python python /usr/bin/python3 1000
+    update-alternatives --config python
+    apt-get clean && rm -rf /var/lib/apt/lists/* # do not forget to clean!
+    chmod -R a+w /var/cache
+
+    curl -O https://beta.quicklisp.org/quicklisp.lisp
+    (echo "(quicklisp-quickstart:install)") | sbcl --load quicklisp.lisp
+
+    export P4R_INSTALL=/p4r/install_singularity
+    echo "export P4R_INSTALL=${P4R_INSTALL}" >> ${SINGULARITY_ENVIRONMENT}
+    . ${SINGULARITY_ENVIRONMENT}
+
+    #
+    CMAKE_VERSION=3.28.1
+    wget https://github.com/Kitware/CMake/releases/download/v${CMAKE_VERSION}/cmake-${CMAKE_VERSION}-Linux-x86_64.sh
+    sh cmake-${CMAKE_VERSION}-Linux-x86_64.sh --prefix=/usr/local --skip-license && ldconfig
+    rm -f cmake-${CMAKE_VERSION}-Linux-x86_64.sh
+
+    #
+    EIGEN_VERSION=3.3.7
+    wget -q https://gitlab.com/libeigen/eigen/-/archive/${EIGEN_VERSION}/eigen-${EIGEN_VERSION}.tar.bz2
+    tar xf eigen-${EIGEN_VERSION}.tar.bz2 && rm eigen-${EIGEN_VERSION}.tar.bz2
+    cd eigen-${EIGEN_VERSION} && mkdir build && cd $_ && cmake -DCMAKE_INSTALL_PREFIX=${P4R_INSTALL}/eigen .. && make install && cd ../../ && rm -rf eigen-${EIGEN_VERSION}
+    echo 'export EIGEN_PATH=${P4R_INSTALL}/eigen' >> ${SINGULARITY_ENVIRONMENT}
+
+    echo "en_US.UTF-8 UTF-8" >> /etc/locale.gen && locale-gen

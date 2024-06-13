@@ -1,0 +1,133 @@
+#!/usr/bin/env bash
+# Script to update the singularity image
+
+# OSx and linux realpath utilities are quite different. This is a bash-specific replacement:
+function get_realpath() {
+    [[ ! -f "$1" ]] && return 1 # failure : file does not exist.
+    [[ -n "$no_symlinks" ]] && local pwdp='pwd -P' || local pwdp='pwd' # do symlinks.
+    echo "$( cd "$( echo "${1%/*}" )" 2>/dev/null; $pwdp )"/"${1##*/}" # echo result.
+    return 0 # success
+}
+# we want symlink resolution
+no_symlinks='on'
+
+_script="$(get_realpath ${BASH_SOURCE[0]})"
+
+## Delete last component from $_script ##
+_mydir="$(dirname $_script)"
+
+PLAN4RESROOT=${PLAN4RESROOT:-${_mydir}/..}
+
+# A trace utility. Enable by setting P4R_TRACE=1, disable by setting
+# P4R_TRACE=0
+function trace () {
+	if test ${P4R_TRACE:-0} -eq 1; then
+		echo ";; $@"
+	fi
+}
+
+# Source config
+. ${PLAN4RESROOT}/config/plan4res.conf
+
+mkdir -p ${P4R_CACHEDIR}
+
+if test ! -f ${P4R_CACHEDIR}/${P4R_CONTAINER_NAME}.sif \
+        -o ${P4R_SINGULARITY_IMAGE_PRESERVE:-0} -eq 0; then
+    echo "Updating image 'plan4res_${P4R_MPI_IMP}.sif' in '${P4R_CONTAINER_NAME}.sif'"
+    if test ${P4R_SINGULARITY_IMAGE_PRESERVE:-0} -eq 0; then
+	echo "if you want to avoid this set 'P4R_SINGULARITY_IMAGE_PRESERVE=1' in plan4res.conf"
+    fi
+
+    if test -z "$(which curl)" ; then
+	echo "Please ensure you have /usr/bin/curl installed" >&2
+	exit 1;
+    fi
+
+    if test $# -eq 1 && test $1 = "-f" -o $1 = "--force"; then
+	trace "Detected --force flag"
+	force_download=1
+    fi
+
+    # Check definition file from local singularity submodule
+    set +e
+    cmp -s ${PLAN4RESROOT}/executors/singularity/plan4res_base.def ${P4R_CACHEDIR}/plan4res_base.def.cached
+    CHECKERR=$?
+    if test ${CHECKERR} -eq 0; then
+	cmp -s ${PLAN4RESROOT}/executors/singularity/plan4res_mpi.def ${P4R_CACHEDIR}/plan4res_mpi.def.cached
+	CHECKERR=$?
+    fi
+    set -e
+
+    if test ${CHECKERR} -ne 0 -a -f ${P4R_CACHEDIR}/plan4res_base.def.cached -a -f ${P4R_CACHEDIR}/plan4res_mpi.def.cached; then
+	RED='\033[0;31m'
+	NC='\033[0m' # No Color
+	printf "${RED}Warning: Cached image definition files diverge from the repository ones.\n"
+	printf "         It may cause problems, consider to update the repo\n"
+	printf "         (\`bin/p4r -c\`, \`git config submodule.recurse true\`, \`git pull\`) ${NC}\n"
+    fi
+
+    if test ${force_download:-0} -eq 1 -o ${CHECKERR} -ne 0 -o ! -f ${P4R_CACHEDIR}/${P4R_CONTAINER_NAME}.sif ; then
+	trace "Downloading singularity image definition from ${P4R_SINGULARITY_IMAGE_BASE_DEF_URL}"
+	curl --create-dirs -o ${P4R_CACHEDIR}/plan4res_base.def \
+	     "${P4R_SINGULARITY_IMAGE_BASE_DEF_URL:?P4R_SINGULARITY_IMAGE_BASE_DEF_URL not set}"
+	trace "Downloading singularity image definition from ${P4R_SINGULARITY_IMAGE_DEF_URL}"
+	curl --create-dirs -o ${P4R_CACHEDIR}/plan4res_mpi.def \
+	     "${P4R_SINGULARITY_IMAGE_DEF_URL:?P4R_SINGULARITY_IMAGE_DEF_URL not set}"
+	# Check if the cached definition file is different from the cached one
+	set +e
+	cmp -s ${P4R_CACHEDIR}/plan4res_base.def ${P4R_CACHEDIR}/plan4res_base.def.cached
+	CHECKERR=$?
+	if test ${CHECKERR} -eq 0; then
+	    cmp -s ${P4R_CACHEDIR}/plan4res_mpi.def ${P4R_CACHEDIR}/plan4res_mpi.def.cached
+	    CHECKERR=$?
+	fi
+	set -e
+	if test ${force_download:-0} -eq 1 -o ${CHECKERR} -ne 0 -o ! -f ${P4R_CACHEDIR}/${P4R_CONTAINER_NAME}.sif ; then
+	    trace "Image definition changed (or missing image), updating SIF image"
+	    rm -f ${P4R_CACHEDIR}/${P4R_CONTAINER_NAME}.sif
+	    curl --create-dirs -o ${P4R_CACHEDIR}/${P4R_CONTAINER_NAME}.sif \
+	         "${P4R_SINGULARITY_IMAGE_IMG_URL:?P4R_SINGULARITY_IMAGE_IMG_URL not set}"
+	    # Update cached definition file
+	    mv ${P4R_CACHEDIR}/plan4res_base.def ${P4R_CACHEDIR}/plan4res_base.def.cached
+	    mv ${P4R_CACHEDIR}/plan4res_mpi.def ${P4R_CACHEDIR}/plan4res_mpi.def.cached
+	    touch ${P4R_CACHEDIR}/${P4R_CONTAINER_NAME}.sif.needs-sync
+	fi
+    fi
+fi
+
+# Only MPICH support for Vagrant
+function sync_image () {
+    if test -f $1/plan4res_MPICH.sif.needs-sync -o ! -f $2/plan4res_MPICH.sif; then
+	# Remove any old image
+	rm -f $2/plan4res_MPICH.sif
+	# Copy image
+	cp $1/plan4res_MPICH.sif $2 2>&1
+	rm -f $1/plan4res_MPICH.sif.needs-sync
+    fi
+}
+
+# Function for Vagrant execution
+function vagrant_sync () {
+    trace "Checking inside VM for image"
+    vagrant ssh -c "$(declare -f sync_image); sync_image $1 ~"\
+	    2> >(grep -vE "Connection to \b([0-9]{1,3}\.){3}[0-9]{1,3}\b closed.")
+}
+
+
+# on VM setups: check that the image is available inside the container
+p4r_uname="$(uname -s)"
+case "${p4r_uname}" in
+    Linux*)
+    ;;
+    Darwin*)
+	# MacOS (Darwin)
+	vagrant_sync "/host/${P4R_CACHEDIR}"
+    ;;
+    MING*)
+	# Windows (Git Bash)
+	# Strip prefix directory, e.g. /c/
+	vagrant_sync "/host/${P4R_CACHEDIR#/*/}"
+    ;;
+esac
+
+trace "Sync done"

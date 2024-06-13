@@ -1,0 +1,80 @@
+#!/usr/bin/env -S bash -e
+# -*- mode: sh; sh-shell: bash; -*-
+
+# OSx and linux realpath utilities are quite different. This is a bash-specific replacement:
+function get_realpath() {
+    [[ ! -f "$1" ]] && return 1 # failure : file does not exist.
+    [[ -n "$no_symlinks" ]] && local pwdp='pwd -P' || local pwdp='pwd' # do symlinks.
+    echo "$( cd "$( echo "${1%/*}" )" 2>/dev/null; $pwdp )"/"${1##*/}" # echo result.
+    return 0 # success
+}
+# we want symlink resolution
+no_symlinks='on'
+
+_script="$(get_realpath ${BASH_SOURCE[0]})"
+
+## Delete last component from $_script ##
+_mydir="$(dirname $_script)"
+
+PLAN4RESROOT=${PLAN4RESROOT:-${_mydir}/..}
+PLAN4RESEXEDIR=${PLAN4RESROOT}/executors
+
+# fetch our config file
+. ${PLAN4RESROOT}/config/plan4res.conf
+
+# A trace utility. Enable by setting P4R_TRACE=1, disable by setting
+# P4R_TRACE=0
+function trace () {
+        if test ${P4R_TRACE:-0} -eq 1; then
+                echo ";; $@"
+        fi
+}
+
+function rebuild() {
+    # Remove any previous image
+    sudo rm -rf ${BUILDDIR}
+
+    mkdir -p ${BUILDDIR}
+    cd ${BUILDDIR}
+
+    trace "Building base image in $(pwd) from ${PLAN4RESEXEDIR}/singularity/plan4res_base.def"
+    cp -r ${PLAN4RESEXEDIR}/singularity/tests .
+    sudo -E env "PATH=$PATH" singularity build --sandbox plan4res_base.imgdir ${PLAN4RESEXEDIR}/singularity/plan4res_base.def
+    trace "Building image in $(pwd) from ${PLAN4RESEXEDIR}/singularity/plan4res_mpi.def with $P4R_MPI_IMP"
+    cat > plan4res_conf.sh <<EOF
+export MPI_DIST="$P4R_MPI_IMP"
+EOF
+    sudo -E env "PATH=$PATH" singularity build ${P4R_CONTAINER_NAME}.sif ${PLAN4RESEXEDIR}/singularity/plan4res_mpi.def
+    trace "Copying image to proper destination"
+    rsync -au ${P4R_CONTAINER_NAME}.sif ${PLAN4RESEXEDIR}/singularity/${P4R_CONTAINER_NAME}.sif
+
+    trace "Remove temporary files"
+    cd ..
+    sudo rm -rf ${BUILDDIR}
+
+    trace "Image build complete. To use it make sure your plan4res.conf file is set up to use it"
+
+}
+
+if [[ "$USER" = "vagrant" ]]; then
+    trace "Noticed vagrant environment, good"
+
+    rebuild
+
+else
+    case $(uname -s) in
+	Darwin*|MING*)
+		trace "Cannot rebuild image without VM, recursing into vagrant"
+		vagrant ssh -c "env P4R_TRACE=${P4R_TRACE:-0} bin/rebuild-singularity-image"\
+			     2> >(grep -vE "Connection to \b([0-9]{1,3}\.){3}[0-9]{1,3}\b closed.")
+		;;
+	Linux*)
+		echo "Implement Linux image rebuild capabilities" >&2
+		rebuild
+		;;
+	*)
+		echo "Unsupported image rebuild environment $(uname -s)" >&2
+		exit 1;
+		;;
+    esac
+fi

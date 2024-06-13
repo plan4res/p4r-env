@@ -1,0 +1,91 @@
+#!/usr/bin/env add-on
+
+SHELL = /bin/sh
+
+BIN_NAMES := test_parse_serialize_deserialize
+
+INSTALLDIR    = ${ADDONS_INSTALLDIR}
+MAKEFILE_NAME = $(CURDIR)/$(word $(words $(MAKEFILE_LIST)),$(MAKEFILE_LIST))
+PKGNAME      := $(notdir $(MAKEFILE_NAME))
+
+GITURL  := https://gitlab.com/stochastic-control
+GITPKG  := StOpt
+
+PYBIND11VER := 2.5.0
+
+.PHONY: install update check status clean uninstall help
+
+install: _build
+	 @echo "Install $(PKGNAME) add-on"
+	 @rm -rf $(INSTALLDIR)/$(PKGNAME) # delete previous directory
+	 @mkdir -p $(INSTALLDIR)/$(PKGNAME)
+	 @cd $(PKGNAME)/BUILD && make install > /dev/null
+	 @cd $(PKGNAME)/$(GITPKG) && echo "installed, version $$(git describe --always --tags)" > $(INSTALLDIR)/$(PKGNAME)/VERSION
+HELP += "  install : Install $(PKGNAME) add-on"
+
+_build: $(PKGNAME)/$(GITPKG) $(PKGNAME)/pybind11-$(PYBIND11VER)
+	@mkdir -p $(PKGNAME)/BUILD
+	@cd $(PKGNAME)/BUILD && cmake -DEIGEN3_INCLUDE_DIR=${EIGEN_PATH}/include/eigen3 \
+	    	       	     	      -DBUILD_MPI=ON \
+				      -DBUILD_PYTHON=OFF \
+				      -DBUILD_TEST=OFF \
+				      -DBUILD_LONG_TEST=OFF \
+				      -DPYBIND11_INCLUDE_DIR=$(CURDIR)/$(PKGNAME)/pybind11-$(PYBIND11VER)/include/ \
+				      -DCMAKE_INSTALL_PREFIX=$(INSTALLDIR)/$(PKGNAME) \
+				      -DBOOST_ROOT=${BOOST_PATH} \
+				      ../$(GITPKG)
+	@cd $(PKGNAME)/BUILD && make -j 1
+	#$(getconf _NPROCESSORS_ONLN)
+
+update: _pull | install
+HELP += "   update : Update and re-install $(PKGNAME)"
+
+# Pull repositories, internal target, any pull must trigger install
+_pull: $(PKGNAME)/$(GITPKG)
+	@echo "Update $(PKGNAME) add-on"
+	@cd $(PKGNAME)/$(GITPKG) && git pull
+
+check: _build
+	@echo "Check $(PKGNAME) add-on"
+	@(cd $(PKGNAME)/BUILD && ctest)
+HELP += "    check : Check $(PKGNAME) add-on"
+
+$(PKGNAME)/$(GITPKG):
+	@mkdir -p $(dir $@)
+	git clone $(GITURL)/$(notdir $@).git $@
+
+$(PKGNAME)/pybind11-$(PYBIND11VER):
+	@mkdir -p $(dir $@)
+	@wget https://github.com/pybind/pybind11/archive/v$(PYBIND11VER).tar.gz -O $@.tar.gz
+	@cd $(dir $@) && tar xvf $(notdir $@).tar.gz && rm $(notdir $@).tar.gz
+
+status:
+	@if test -f $(INSTALLDIR)/$(PKGNAME)/VERSION ; then \
+		cat $(INSTALLDIR)/$(PKGNAME)/VERSION ; \
+	else \
+		echo "not installed"; \
+	fi
+HELP += "   status : Print $(PKGNAME) version"
+
+clean:
+	@echo "Clean $(PKGNAME) add-on build directory"
+	@if test -d $(PKGNAME)/BUILD; then                          \
+                (cd $(PKGNAME)/BUILD ; make clean                   \
+        fi
+HELP += "    clean : Clean $(PKGNAME) build directory"
+
+######
+###### Common to all add-ons
+######
+
+uninstall:
+	@echo "Remove $(PKGNAME) add-on build and installation directories"
+	@rm -rf $(PKGNAME)
+	@rm -rf $(INSTALLDIR)/$(PKGNAME)
+	@rm -rf $(INSTALLDIR_TMP)/$(PKGNAME)
+HELP += "uninstall : Remove $(PKGNAME) build and installation directories"
+
+help:
+	@echo "Targets for $(PKGNAME) add-on (first target as default):"
+	@printf "   %s\n" $(HELP)
+HELP += "     help : This help"

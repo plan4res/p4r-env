@@ -1,0 +1,68 @@
+#!/usr/bin/env add-on
+
+SHELL = /bin/sh
+
+INSTALLDIR    = ${ADDONS_INSTALLDIR}
+MAKEFILE_NAME = $(CURDIR)/$(word $(words $(MAKEFILE_LIST)),$(MAKEFILE_LIST))
+PKGNAME      := $(notdir $(MAKEFILE_NAME))
+
+GITURL  := https://gitlab.com/cerl/octopus
+GITPKG  := universal-data-junction
+
+.PHONY: install check status clean uninstall help
+
+install: _build
+	 @echo "Install $(PKGNAME) add-on"
+	 @rm -rf $(INSTALLDIR)/$(PKGNAME) # delete previous directory
+	 @mkdir -p $(INSTALLDIR)/$(PKGNAME)
+	 @(cd $(PKGNAME)/$(GITPKG) && make install) > /dev/null
+	 @cd $(PKGNAME)/$(GITPKG) && echo "installed, version $$(git describe --always --tags)" > $(INSTALLDIR)/$(PKGNAME)/VERSION
+HELP += "  install : Install $(PKGNAME) add-on"
+
+check: _build
+	@echo "Check $(PKGNAME) add-on"
+	@(cd $(PKGNAME)/$(GITPKG) && make check)
+HELP += "    check : Check $(PKGNAME) add-on"
+
+_build: $(PKGNAME)/$(GITPKG)
+	@(cd $< && \
+          ./configure --prefix=$(INSTALLDIR)/$(PKGNAME) --without-dataspaces --without-ofi --without-h5fddsm --without-fortran CC=mpicc LDFLAGS="-pthread" && \
+          make -j) > /dev/null
+
+$(PKGNAME)/$(GITPKG):
+	@mkdir -p $(dir $@)
+	@git config --global credential.helper 'cache --timeout=100' # avoid to repeat password per each submodule
+	@git clone --recursive $(GITURL)/$(notdir $@).git $@
+	@cd $@ && git checkout --quiet rel-0.4.1
+	@cd $@ && git config submodule.recurse true
+	# Configure
+	cd $@ && ./autogen.sh
+
+status:
+	@if test -f $(INSTALLDIR)/$(PKGNAME)/VERSION ; then \
+      cat $(INSTALLDIR)/$(PKGNAME)/VERSION ; \
+  else \
+    echo "not installed"; \
+  fi
+HELP += "   status : Print $(PKGNAME) version"
+
+clean:
+	@echo "Clean $(PKGNAME) add-on build directory"
+	((cd $(PKGNAME)/$(GITPKG) && make -k clean) || echo "Error: clean not possible! Is $(PKGNAME) add-on installed?") 2> /dev/null
+HELP += "    clean : Clean $(PKGNAME) build directory"
+
+######
+###### Common to all add-ons
+######
+
+uninstall:
+	@echo "Remove $(PKGNAME) add-on build and installation directories"
+	@rm -rf $(PKGNAME)
+	@rm -rf $(INSTALLDIR)/$(PKGNAME)
+	@rm -rf $(INSTALLDIR_TMP)/$(PKGNAME)
+HELP += "uninstall : Remove $(PKGNAME) build and installation directories"
+
+help:
+	@echo "Targets for $(PKGNAME) add-on (first target as default):"
+	@printf "   %s\n" $(HELP)
+HELP += "     help : This help"

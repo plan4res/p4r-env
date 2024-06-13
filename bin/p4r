@@ -1,0 +1,219 @@
+#!/bin/bash -e
+# This is the main dispatch script that runs commands of the plan4res
+# toolset. It sources the config file, then chooses the excutor
+# specified there, and executes commands specified as arguments
+
+# OSx and linux realpath utilities are quite different. This is a bash-specific replacement:
+function get_realpath() {
+    [[ ! -f "$1" ]] && return 1 # failure : file does not exist.
+    [[ -n "$no_symlinks" ]] && local pwdp='pwd -P' || local pwdp='pwd' # do symlinks.
+    echo "$( cd "$( echo "${1%/*}" )" 2>/dev/null; $pwdp )"/"${1##*/}" # echo result.
+    return 0 # success
+}
+# we want symlink resolution
+no_symlinks='on'
+
+_script="$(get_realpath ${BASH_SOURCE[0]})"
+
+## Delete last component from $_script ##
+_mydir="$(dirname $_script)"
+
+export PLAN4RESROOT=${PLAN4RESROOT:-${_mydir}/..}
+export PLAN4RESEXEDIR=${PLAN4RESROOT}/executors
+
+# A trace utility. Enable by setting P4R_TRACE=1, disable by setting
+# P4R_TRACE=0
+function trace () {
+	if test ${P4R_TRACE:-0} -eq 1; then
+		echo ";; $@"
+	fi
+}
+
+# Source config
+. ${PLAN4RESROOT}/config/plan4res.conf
+
+trace "Using executor ${P4R_EXECUTOR:?No executor set -- fix your plan4res.conf file!}"
+
+function check_cli() {
+    IMGNAME=$1
+    shift
+    case "$*" in
+	"-t")
+	    singularity test ${IMGNAME}
+	    ;;
+	*)
+	    # Only command can be executed in batch
+	    test -n "${P4R_CMD}" -a -n "$*" && trace "Submission command: ${P4R_CMD}" || P4R_CMD=""
+	    ${P4R_CMD} singularity run ${IMGNAME} "$*"
+	    ;;
+    esac
+}
+
+# this script could be split up into multiple parts, but for now we
+# keep it all in one for simplicity
+
+function run_singularity() {
+    if test ${P4R_SKIP_IMAGE:-0} -eq 0; then
+	# Make a cache directory to store temporary downloaded files
+	mkdir -p ${P4R_CACHEDIR}
+
+	# updates: update image
+	${PLAN4RESROOT}/bin/update-singularity-image
+    fi
+
+    p4r_uname="$(uname -s)"
+    case "${p4r_uname}" in
+	Linux*)
+	    trace "Running singularity on plan4res image"
+	    # Mount Host / in /host on the container
+	    export SINGULARITY_BIND="/:/host,"${SINGULARITY_BIND}
+	    # Cache sandbox if requested
+	    SINGULARITY_EXT=sif
+	    if test ${P4R_CACHE_SANDBOX:-0} -eq 1; then
+		SINGULARITY_EXT=imgdir
+		if test -f ${P4R_CACHEDIR}/${P4R_CONTAINER_NAME}.sif.needs-sync -o ! -d ${P4R_CACHEDIR}/${P4R_CONTAINER_NAME}.imgdir ; then
+		    singularity build --sandbox --force ${P4R_CACHEDIR}/${P4R_CONTAINER_NAME}.imgdir ${P4R_CACHEDIR}/${P4R_CONTAINER_NAME}.sif
+		fi
+            fi
+            rm -f ${P4R_CACHEDIR}/${P4R_CONTAINER_NAME}.sif.needs-sync
+	    check_cli ${P4R_CACHEDIR}/${P4R_CONTAINER_NAME}.${SINGULARITY_EXT} "$*"
+	    ;;
+	Darwin*|MING*)
+	    case "${p4r_uname}" in
+		MING*)
+		    # Strip prefix directory, e.g. /c/
+		    P4R_CACHEDIR_VAGRANT=${P4R_CACHEDIR#/*/}
+		    ;;
+		*)
+		    P4R_CACHEDIR_VAGRANT=${P4R_CACHEDIR}
+		    ;;
+	    esac
+	    trace "Recursively invoking p4r script inside vagrant VM, args \"$*\""
+	    # Windows (Git Bash) or MacOS (Darwin)
+	    # Make cache directory link on vagrant VM
+	    vagrant ssh -c "rm -rf ~/$(basename ${P4R_CACHEDIR_VAGRANT}) && ln -s /host/${P4R_CACHEDIR_VAGRANT} && env P4R_TRACE=${P4R_TRACE:-0} P4R_CMD=\"${P4R_CMD:-\"\"}\" ./bin/p4r '$*'"\
+		         2> >(grep -vE "Connection to \b([0-9]{1,3}\.){3}[0-9]{1,3}\b closed.")
+	    ;;
+	*)
+	    echo "Unexpected unixoid environment, please check how to run singularity here" >&2
+	    exit 1
+	    ;;
+    esac
+
+}
+
+function run_shell() {
+	echo "Shell executor unimplemented" >&2
+	exit 1;
+}
+
+### Actual entry point of run script
+if [[ "$USER" = "vagrant" ]]; then
+    trace "Noticed vagrant environment"
+
+    # Check if the current Vagrant VM was created with the same file Vagrantfile
+    # available in p4r-env
+    set +e
+    cmp -s ~/.Vagrantfile.cached /vagrant/Vagrantfile
+    CHECKERR=$?
+    set -e
+    if test ${CHECKERR} -ne 0 ; then
+	RED='\033[0;31m'
+	NC='\033[0m' # No Color
+	printf "${RED}Warning: Vagrant VM has been created with a different Vagrantfile.\n"
+	printf "         It may cause problems, consider to recreate the VM (vagrant destroy && vagrant up).${NC}\n"
+    fi
+
+    case "$*" in
+	"-c")
+	    if test -d ${ADDONS_CACHEDIR}; then
+		rm -rf ${ADDONS_CACHEDIR}
+	    fi
+	    if test -d ${ADDONS_INSTALLDIR_TMP}; then
+		rm -rf ${ADDONS_INSTALLDIR_TMP}
+	    fi
+	    rm -rf plan4res_MPICH.sif
+	    echo "done."
+	    exit 0
+	    ;;
+    esac
+
+    # copying the image to the VM is done at the end of bin/update-singularity-image
+    # (running from host dir can fail on windows or mac due to FS issues)
+    if test ! -f ~/plan4res_MPICH.sif; then
+	echo "plan4res_MPICH.sif missing in VM -- try recreating the VM"
+    fi
+
+    # assumes that the entry point in the image understands all
+    # our command line arguments
+    trace "Dispatching into singularity image"
+    check_cli plan4res_MPICH.sif "$*"
+else
+
+    case "$*" in
+	"-c")
+	    echo -n "Cleaning caches... "
+	    if test -d ${P4R_CACHEDIR}; then
+		rm -rf ${P4R_CACHEDIR}
+	    fi
+	    if test -d ${PLAN4RESEXEDIR}/singularity/; then
+		rm -f ${PLAN4RESEXEDIR}/singularity/*.sif
+	    fi
+	    if test -d ${ADDONS_INSTALLDIR}; then
+		rm -rf ${ADDONS_INSTALLDIR}
+	    fi
+	    if test -d ${BUILDDIR}; then
+		rm -rf ${BUILDDIR}
+	    fi
+	    case "${p4r_uname}" in
+		Linux*)
+		    if test -d ${ADDONS_CACHEDIR}; then
+			rm -rf ${ADDONS_CACHEDIR}
+		    fi
+		    echo "done."
+		    exit 0
+		    ;;
+		Darwin*|MING*)
+		    # Remove directories on the VM
+		    export P4R_SKIP_IMAGE=1
+		    ;;
+	    esac
+	    ;;
+	"-h")
+	    echo "Plan4Res (http://plan4res.eu) environment."
+	    echo "Author cerl@cray.com -- Cray Switzerland GmbH (Cray EMEA Research Lab)"
+	    echo "Version v0.0.1"
+	    echo
+	    echo "Usage:"
+	    echo "   p4r <command> [<options>]"
+	    echo
+	    echo "   <command> can be omitted, otherwise it can be any shell command, e.g."
+	    echo "        'p4r ls -l'"
+	    echo
+	    echo "   If <command> is omitted, the following list of options can be used:"
+	    echo "     -h : this help"
+	    echo "     -t : test the container"
+	    echo "     -c : clean caches"
+	    echo
+	    echo "    Special commands:"
+	    echo "             add-on : Run add-ons (run without any option to get help)"
+	    echo "            run-cs1 : Case-study 1 driver script"
+	    echo "            run-cs2 : Case-study 2 driver script"
+	    echo "            run-cs3 : Case-study 3 driver script"
+	    echo
+	    exit 0
+	    ;;
+    esac
+
+    trace "Non-VM environment detected"
+    case ${P4R_EXECUTOR} in
+	singularity) run_singularity "$*"
+		     ;;
+	shell)       run_shell "$*"
+		     ;;
+	*)
+	    echo "Unsupported executor ${P4R_EXECUTOR}" >&2
+	    exit 1;
+	    ;;
+    esac
+fi

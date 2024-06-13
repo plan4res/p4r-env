@@ -1,0 +1,116 @@
+#!/usr/bin/env add-on
+
+SHELL = /bin/sh
+
+INSTALLDIR     = ${ADDONS_INSTALLDIR}
+INSTALLDIR_TMP = ${ADDONS_INSTALLDIR_TMP}
+MAKEFILE_NAME  = $(CURDIR)/$(word $(words $(MAKEFILE_LIST)),$(MAKEFILE_LIST))
+PKGNAME       := $(notdir $(MAKEFILE_NAME))
+
+PKGVER  := scipoptsuite-7.0.0
+PKGURL  := https://scipopt.org/download.php?fname=$(PKGVER).tgz
+
+# BLISS: http://www.tcs.tkk.fi/Software/bliss/index.html
+BLISSPKG := bliss-0.73
+BLISSURL := http://www.tcs.hut.fi/Software/bliss/$(BLISSPKG).zip
+
+# IPOPT: https://www.coin-or.org/Ipopt/documentation/node12.html
+IPOPTPKG := Ipopt-3.12.13
+IPOPTURL := https://www.coin-or.org/download/source/Ipopt/$(IPOPTPKG).tgz
+
+.PHONY: install check status clean uninstall help
+
+define compile
+	@cd $(PKGNAME)/$(PKGVER) && mkdir -p build && cd build && \
+	    cmake .. \
+	    	  -DBOOST_ROOT=${BOOST_PATH} \
+	    	  -DCMAKE_INSTALL_PREFIX=$(INSTALLDIR_TMP)/$(PKGNAME) -DCMAKE_BUILD_TYPE=Release -DSYM=bliss \
+	    	  -DBLISS_INCLUDE_DIR=$(CURDIR)/$(PKGNAME) \
+		  -DBLISS_LIBRARY=$(CURDIR)/$(PKGNAME)/$(BLISSPKG)/libbliss.a && \
+	    make $1
+#		  -DIPOPT=on -DIPOPT_DIR=$(CURDIR)/$(PKGNAME)/$(IPOPTPKG)/Ipopt
+endef
+
+install: $(INSTALLDIR)/$(PKGNAME)
+$(INSTALLDIR)/$(PKGNAME): $(PKGNAME)/$(PKGVER) $(PKGNAME)/$(BLISSPKG) $(PKGNAME)/$(IPOPTPKG)
+	@echo "Install $(PKGNAME) add-on"
+	@rm -rf $(INSTALLDIR_TMP)/$(PKGNAME)
+	@mkdir -p $(INSTALLDIR_TMP)/$(PKGNAME)
+	$(call compile, install)
+	@cp $(PKGNAME)/$(BLISSPKG)/bliss $(INSTALLDIR_TMP)/$(PKGNAME)/bin
+	@cp $(PKGNAME)/$(BLISSPKG)/libbliss.a $(INSTALLDIR_TMP)/$(PKGNAME)/lib
+	@mkdir -p $(INSTALLDIR_TMP)/$(PKGNAME)/include/bliss && cp $(PKGNAME)/$(BLISSPKG)/*.h* $(INSTALLDIR_TMP)/$(PKGNAME)/include/bliss
+	@cp $(PKGNAME)/$(IPOPTPKG)/Ipopt/lib/lib* $(INSTALLDIR_TMP)/$(PKGNAME)/lib
+	@cp -r $(PKGNAME)/$(IPOPTPKG)/Ipopt/include $(INSTALLDIR_TMP)/$(PKGNAME)
+	@cd $(PKGNAME)/$(PKGVER) && echo "installed, version$$(grep OPTSUITEVERSION Makefile | head -n 1 | cut -d'=' -f2)" > $(INSTALLDIR_TMP)/$(PKGNAME)/VERSION
+ifneq ($(INSTALLDIR),$(INSTALLDIR_TMP))
+	@rsync -au --copy-links $(INSTALLDIR_TMP)/$(PKGNAME) $(INSTALLDIR)
+	@rm -rf $(INSTALLDIR_TMP)/$(PKGNAME)
+endif
+HELP += "  install : Install $(PKGNAME) add-on"
+
+check: $(PKGNAME)/$(PKGVER)/scip/bin
+	@echo "Check $(PKGNAME) add-on"
+	@(cd $(PKGNAME)/$(PKGVER)/build && ctest)
+HELP += "    check : Check $(PKGNAME) add-on"
+
+$(PKGNAME)/$(PKGVER)/scip/bin: $(PKGNAME)/$(PKGVER) $(PKGNAME)/$(BLISSPKG) $(PKGNAME)/$(IPOPTPKG)
+	$(call compile)
+
+$(PKGNAME)/$(PKGVER):
+	@mkdir -p $(dir $@)
+	@cd $(dir $@) && rm -f $(PKGVER).tgz
+	@cd $(dir $@) && curl -k -L -F tname=A -F email=b -Fcountry=c -F license=academic -o $(PKGVER).tgz '$(PKGURL)'
+	@cd $(dir $@) && tar xvf $(PKGVER).tgz
+	@cd $(dir $@) && rm -f $(PKGVER).tgz
+
+# Compile BLISS
+# Apply patch from https://scip.zib.de/index.php#download
+$(PKGNAME)/$(BLISSPKG):
+	@mkdir -p $(dir $@)
+	@cd $(dir $@) && rm -f $(BLISSPKG).zip
+	@cd $(dir $@) && curl -k -L -o $(BLISSPKG).zip '$(BLISSURL)'
+	@cd $(dir $@) && unzip $(BLISSPKG).zip && rm -f $(BLISSPKG).zip
+	@cd $(dir $@) && rm -f $(BLISSPKG).patch && \
+	    wget --no-check-certificate https://scip.zib.de/download/bugfixes/scip-6.0.1/$(BLISSPKG).patch && \
+	    patch --ignore-whitespace -p0 < $(BLISSPKG).patch && \
+	    cd $(BLISSPKG) && make
+	@cd $(dir $@) && ln -s $(BLISSPKG) bliss
+
+# Compile IPOPT
+$(PKGNAME)/$(IPOPTPKG):
+	@mkdir -p $(dir $@)
+	@cd $(dir $@) && rm -f $(IPOPTPKG).tgz
+	@cd $(dir $@) && curl -k -L -o $(IPOPTPKG).tgz '$(IPOPTURL)'
+	@cd $(dir $@) && tar xvf $(IPOPTPKG).tgz && rm -f $(IPOPTPKG).tgz
+	@cd $@/ThirdParty/ASL && ./get.ASL && cd ../../ && \
+	./configure --prefix=$(CURDIR)/$(PKGNAME)/$(IPOPTPKG)/Ipopt && make install
+
+status:
+	@if test -f $(INSTALLDIR)/$(PKGNAME)/VERSION ; then \
+                cat $(INSTALLDIR)/$(PKGNAME)/VERSION ; \
+        else \
+                echo "not installed"; \
+        fi
+HELP += "   status : Print $(PKGNAME) version"
+
+clean:
+	@echo "Clean $(PKGNAME) add-on build directory"
+	@((cd $(PKGNAME)/$(PKGVER)/build && make -k clean) || echo "Error: clean not possible! Is $(PKGNAME) add-on installed?") 2> /dev/null
+HELP += "    clean : Clean $(PKGNAME) build directory"
+
+######
+###### Common to all add-ons
+######
+
+uninstall:
+	@echo "Remove $(PKGNAME) add-on build and installation directories"
+	@rm -rf $(PKGNAME)
+	@rm -rf $(INSTALLDIR)/$(PKGNAME)
+	@rm -rf $(INSTALLDIR_TMP)/$(PKGNAME)
+HELP += "uninstall : Remove $(PKGNAME) build and installation directories"
+
+help:
+	@echo "Targets for $(PKGNAME) add-on (first target as default):"
+	@printf "   %s\n" $(HELP)
+HELP += "     help : This help"

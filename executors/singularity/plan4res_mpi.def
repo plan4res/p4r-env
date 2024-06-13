@@ -1,0 +1,220 @@
+Bootstrap: localimage
+From: plan4res_base.imgdir
+
+%help
+    This is the container used to run Plan4Res (http://plan4res.eu) tools in a
+    controlled environment.
+
+%environment
+    export LC_ALL="en_US.UTF-8"
+    export PYTHONNOUSERSITE=1
+
+%labels
+    Author HPE HPC/AI EMEA Research Lab (emearesearchlab@hpe.com)
+    Version v0.3.0
+
+%runscript
+    export PLAN4RESROOT=${PLAN4RESROOT:-${PWD}}
+    export PATH=${PLAN4RESROOT}/bin:${PLAN4RESROOT}/scripts:${PLAN4RESROOT}/site/bin:${PATH}
+    if test -n "${HOST_LD_LIBRARY_PATH}" ; then
+	export LD_LIBRARY_PATH=${HOST_LD_LIBRARY_PATH}:${LD_LIBRARY_PATH}
+    fi
+    export LD_LIBRARY_PATH=${PLAN4RESROOT}/site/lib:${LD_LIBRARY_PATH}
+    export MANPATH=${PLAN4RESROOT}/site/man:${MANPATH}
+    # Set temporary directory
+    if test -z "${TMPDIR+x}"; then
+        export TMPDIR=/tmp
+    fi
+    export TMPDIR=${TMPDIR}/singularity_${USER}
+    export SWIFT_TMP=${TMPDIR}
+
+    # Make temporary directory
+    mkdir -p ${TMPDIR}
+
+    # Load add-ons path
+    if test -d "${ADDONS_INSTALLDIR}"; then
+	for d in `find ${ADDONS_INSTALLDIR} -type d -name "bin" ! -path '*/cplex/*'`; do export PATH=$d:${PATH}; done
+	for d in `find ${ADDONS_INSTALLDIR} -type d -name "lib" ! -path '*/cplex/*'`; do export LD_LIBRARY_PATH=$d:${LD_LIBRARY_PATH}; done
+    fi
+
+    if test ${P4R_TRACE:-0} -ne 0; then
+	echo "Singularity run script entered, Arguments: \"$*\""
+    fi
+
+    if test $# -eq 0 || test -z "$@" ; then
+	echo ";; No tool specified to run. Starting a shell inside the container."
+	echo ";; If this is not what you intended, specify the command to invoke on the command line of the p4r script."
+	echo ";; Run 'p4r -h' to get help."
+	bash -norc
+    else
+	# pass arguments to exec
+	sh -c "$@"
+    fi
+
+    if test ${P4R_TRACE:-0} -ne 0; then
+	echo "Singularity run script terminating"
+    fi
+
+%setup
+    # take external configuration
+    if test -f plan4res_conf.sh; then
+	cp plan4res_conf.sh ${SINGULARITY_ROOTFS}/p4r
+    else
+	# Default configuration
+	cat > ${SINGULARITY_ROOTFS}/p4r/plan4res_conf.sh <<EOF
+	export MPI_DIST="MPICH"
+EOF
+    fi
+
+# Specific installations depending on MPI library
+%post -c /bin/bash
+
+    cat /p4r/plan4res_conf.sh >> ${SINGULARITY_ENVIRONMENT}
+    . ${SINGULARITY_ENVIRONMENT}
+
+    if test "$MPI_DIST" = "OpenMPI"; then
+	OMPI_VERSION=3.1.4
+	echo "Install OpenMPI v"$OMPI_VERSION
+        wget https://download.open-mpi.org/release/open-mpi/v3.1/openmpi-$OMPI_VERSION.tar.bz2
+        tar xf openmpi-$OMPI_VERSION.tar.bz2 && rm openmpi-$OMPI_VERSION.tar.bz2
+        cd openmpi-$OMPI_VERSION
+        ./configure --prefix=${P4R_INSTALL}/mpi --disable-static --disable-wrapper-runpath --disable-wrapper-rpath \
+                    --disable-mpi-fortran --mandir=/usr/share/man CC=`which clang` CXX=`which clang++`
+        make -j$(getconf _NPROCESSORS_ONLN) install
+	cd .. && rm -rf openmpi-$OMPI_VERSION
+    else
+	# Follow description at https://www.alcf.anl.gov/user-guides/singularity
+	MPICH_VERSION=3.3.2
+	echo "Install MPICH v"$MPICH_VERSION
+	wget -q http://www.mpich.org/static/downloads/${MPICH_VERSION}/mpich-${MPICH_VERSION}.tar.gz
+	tar xf mpich-${MPICH_VERSION}.tar.gz && rm mpich-${MPICH_VERSION}.tar.gz
+	cd mpich-${MPICH_VERSION}
+	./configure --prefix=${P4R_INSTALL}/mpi --disable-static --disable-rpath --disable-wrapper-rpath \
+		    --disable-fortran --enable-fast=all,O3 --mandir=/usr/share/man CC=`which clang` CXX=`which clang++` > /dev/null
+	make -j$(getconf _NPROCESSORS_ONLN) install > /dev/null
+	cd .. && rm -rf mpich-${MPICH_VERSION}
+    fi
+    echo 'export PATH=${P4R_INSTALL}/mpi/bin:$PATH' >> ${SINGULARITY_ENVIRONMENT}
+    echo 'export LD_LIBRARY_PATH=${LD_LIBRARY_PATH}:${P4R_INSTALL}/mpi/lib' >> ${SINGULARITY_ENVIRONMENT}
+    . ${SINGULARITY_ENVIRONMENT}
+
+    # Follow instructions at https://github.com/ECP-CANDLE/Distribution
+    SWIFTT_VERSION=swift-t-1.4.3
+    wget -q http://swift-lang.github.io/swift-t-downloads/1.4/${SWIFTT_VERSION}.tar.gz
+    tar xf ${SWIFTT_VERSION}.tar.gz && rm ${SWIFTT_VERSION}.tar.gz
+    cd ${SWIFTT_VERSION}
+    ./dev/build/init-settings.sh
+    sed -i "s@^export SWIFT_T_PREFIX=.*@export SWIFT_T_PREFIX=${P4R_INSTALL}/swift-t@" ./dev/build/swift-t-settings.sh
+    sed -i 's@.*ENABLE_PYTHON=0@ENABLE_PYTHON=1@' ./dev/build/swift-t-settings.sh
+    ./dev/build/build-swift-t.sh > /dev/null
+    cd .. && rm -rf ${SWIFTT_VERSION}
+
+    # Make swift-t readable for users
+    find ${P4R_INSTALL}/swift-t -type d -exec chmod a+x {} ';'
+    chmod -R a+r ${P4R_INSTALL}/swift-t
+
+    # Make the turbine executable
+    TURBINE_PATH=${P4R_INSTALL}/swift-t/turbine/bin/turbine
+    chmod +x $TURBINE_PATH
+
+    # Remove the mpiexec call from turbine as mpiexec will be called from
+    # outside the container using the scheduler
+    sed -i "s@\${TURBINE_LAUNCHER} \${LAUNCH_OPTIONS} \${=TURBINE_INTERPOSER}@@" $TURBINE_PATH
+
+    echo 'export PATH=${P4R_INSTALL}/swift-t/stc/bin/:${P4R_INSTALL}/swift-t/turbine/bin:$PATH' >> ${SINGULARITY_ENVIRONMENT}
+
+    #
+    HDF5_VERSION=1.14.3
+    HDF5_VERSION_=$(echo "${HDF5_VERSION}" | sed 's/\./_/g')
+    wget -q https://hdf-wordpress-1.s3.amazonaws.com/wp-content/uploads/manual/HDF5/HDF5_${HDF5_VERSION_}/src/hdf5-${HDF5_VERSION}.tar.bz2
+    tar xf hdf5-${HDF5_VERSION}.tar.bz2 && rm hdf5-${HDF5_VERSION}.tar.bz2
+    cd hdf5-${HDF5_VERSION}
+    ./configure --prefix=${P4R_INSTALL}/hdf5 --enable-parallel --disable-fortran > /dev/null
+    make -j$(getconf _NPROCESSORS_ONLN) install > /dev/null 2>&1
+    cd .. && rm -rf hdf5-${HDF5_VERSION}
+    echo 'export PATH=${P4R_INSTALL}/hdf5/bin:$PATH' >> ${SINGULARITY_ENVIRONMENT}
+    echo 'export LD_LIBRARY_PATH=${LD_LIBRARY_PATH}:${P4R_INSTALL}/hdf5/lib' >> ${SINGULARITY_ENVIRONMENT}
+    . ${SINGULARITY_ENVIRONMENT}
+
+    #
+    NETCDFC_VERSION=4.9.2
+    wget -q https://downloads.unidata.ucar.edu/netcdf-c/${NETCDFC_VERSION}/netcdf-c-${NETCDFC_VERSION}.tar.gz
+    tar xf netcdf-c-${NETCDFC_VERSION}.tar.gz && rm netcdf-c-${NETCDFC_VERSION}.tar.gz
+    cd netcdf-c-${NETCDFC_VERSION}
+    cmake -DCMAKE_INSTALL_PREFIX=${P4R_INSTALL}/netcdf -DCMAKE_C_COMPILER=mpicc -DCMAKE_C_FLAGS="-I${P4R_INSTALL}/mpi/include -DHDF5_PARALLEL" > /dev/null
+    make -j$(getconf _NPROCESSORS_ONLN) install > /dev/null 2>&1
+    cd .. && rm -rf netcdf-c-${NETCDFC_VERSION}
+
+    #
+    NETCDFCXX_VERSION=4.3.1
+    wget -q https://downloads.unidata.ucar.edu/netcdf-cxx/${NETCDFCXX_VERSION}/netcdf-cxx4-${NETCDFCXX_VERSION}.tar.gz
+    tar xf netcdf-cxx4-${NETCDFCXX_VERSION}.tar.gz && rm netcdf-cxx4-${NETCDFCXX_VERSION}.tar.gz
+    cd netcdf-cxx4-${NETCDFCXX_VERSION}
+    ./configure --prefix=${P4R_INSTALL}/netcdf \
+		CPPFLAGS="-I${P4R_INSTALL}/hdf5/include -I${P4R_INSTALL}/mpi/include -I${P4R_INSTALL}/netcdf/include" \
+		LDFLAGS="-L${P4R_INSTALL}/netcdf/lib" > /dev/null
+    make -j$(getconf _NPROCESSORS_ONLN) install > /dev/null
+    cd .. && rm -rf netcdf-cxx4-${NETCDFCXX_VERSION}
+    echo 'export PATH=${P4R_INSTALL}/netcdf/bin:$PATH' >> ${SINGULARITY_ENVIRONMENT}
+    echo 'export LD_LIBRARY_PATH=${LD_LIBRARY_PATH}:${P4R_INSTALL}/netcdf/lib' >> ${SINGULARITY_ENVIRONMENT}
+
+    # Boost (SMS++ and StOpt requirement)
+    BOOST_VERSION=1.72.0
+    BOOST_VERSION_=$(echo "${BOOST_VERSION}" | sed 's/\./_/g')
+    wget -q https://boostorg.jfrog.io/artifactory/main/release/${BOOST_VERSION}/source/boost_${BOOST_VERSION_}.tar.bz2
+    tar xf boost_${BOOST_VERSION_}.tar.bz2 && rm boost_${BOOST_VERSION_}.tar.bz2
+    mkdir ${P4R_INSTALL}/boost
+    cd boost_${BOOST_VERSION_}
+    # Based on http://www.linuxfromscratch.org/blfs/view/svn/general/boost.html
+    #          https://www.boost.org/doc/libs/1_71_0/more/getting_started/unix-variants.html
+    ./bootstrap.sh --prefix=${P4R_INSTALL}/boost --with-libraries=chrono,log,mpi,random,serialization,system,test,thread,timer,program_options > /dev/null
+    echo "using mpi ; " >> project-config.jam
+    ./b2 stage -j$(getconf _NPROCESSORS_ONLN) install > /dev/null
+    cd .. && rm -rf boost_${BOOST_VERSION_}
+    echo 'export BOOST_PATH=${P4R_INSTALL}/boost' >> ${SINGULARITY_ENVIRONMENT}
+    echo 'export LD_LIBRARY_PATH=${LD_LIBRARY_PATH}:${BOOST_PATH}/lib' >> ${SINGULARITY_ENVIRONMENT}
+
+# Update prompt
+%post -c /bin/bash
+    CUSTOM_ENV=$(dirnname ${SINGULARITY_ENVIRONMENT})/99-zz_custom_env.sh
+    cat >$CUSTOM_ENV <<EOF
+#!/bin/bash
+PS1="[P4R-ENV] \w > "
+EOF
+    chmod 755 $CUSTOM_ENV
+
+    # Compile MPI test
+    mpicc /p4r/tests_singularity/mpitest.c -o ${P4R_INSTALL}/mpi/bin/mpitest
+
+%test
+    # Set temporary directory
+    if test -z ${TMPDIR+x}; then
+        export TMPDIR=/tmp
+    fi
+    export TMPDIR=${TMPDIR}/singularity
+    if test ! -z ${USER+x}; then
+        export TMPDIR=${TMPDIR}_${USER}
+    fi
+    export SWIFT_TMP=${TMPDIR}
+
+    # Make temporary directory
+    mkdir -p ${TMPDIR}
+
+    # commands to be executed within container at close of bootstrap process
+    . ${SINGULARITY_ENVIRONMENT}
+    mpiexec --version
+    if test "$MPI_DIST" = "OpenMPI"; then
+	ompi_info
+	MPIFLAGS="-tag-output --allow-run-as-root --oversubscribe"
+    else
+	mpichversion
+	MPIFLAGS="-l"
+    fi
+    . ${SINGULARITY_ENVIRONMENT}
+    swift-t -v
+    stc /p4r/tests_singularity/test1.swift ${TMPDIR}/test1.tic
+    export TURBINE_LOG=1
+    export ADBL_DEBUG_RANKS=1
+    export ADLB_SERVERS=1
+    export ADLB_PRINT_TIME=1
+    mpiexec ${MPIFLAGS} -n 4 turbine ${TMPDIR}/test1.tic
