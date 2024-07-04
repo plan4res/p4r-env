@@ -10,6 +10,8 @@ PKGNAME       := $(notdir $(MAKEFILE_NAME))
 BUILD      ?= Release
 SCIP       ?= 0
 
+SOLVER     ?= None
+
 PKGURL     := https://gitlab.com/smspp
 UMBRELLA   := smspp-project
 
@@ -40,6 +42,7 @@ CLPVER     := 1.17.6
 
 .PHONY: install update compile getdev clean status uninstall help
 
+VARHELP += " SOLVER=<CPLEX|GUROBI|SCIP> : Specify the SOLVER to use."
 VARHELP += " CPLEX=<CPLEX installer file> : Specify the CPLEX installer file."
 VARHELP += " BUILD=<Release or Debug>     : Specify the build mode (Release or Debug). Default is $(BUILD)."
 VARHELP += " SCIP=<0|1>                   : Link with SCIP if set to 1. Default is not to link."
@@ -68,6 +71,11 @@ $(STOPTDIR):
 	@echo "No StOpt installation found at $@. Please install the stopt add-on first!"
 	@exit 1
 
+ifneq ($(SOLVER),CPLEX)
+	@echo "CPLEX will not be used"
+	@exit 1
+endif
+
 ifeq ($(SCIP),1)
 $(SCIPDIR):
 	@echo "No SCIPT installation found at $@. Please install the scip add-on first!"
@@ -95,21 +103,57 @@ CMAKEFLAGS = -Wno-dev \
 	     -DEigen3_ROOT=${EIGEN_PATH}/share/eigen3/cmake \
 	     -DStOpt_ROOT=$(STOPTDIR) \
 	     -DnetCDFCxx_ROOT=${P4R_INSTALL}/netcdf \
-	     -DCPLEX_ROOT=$(CPLEXDIR) \
 	     -DCoinUtils_ROOT=$(COINORDIR)/$(COINNAME) \
 	     -DOsi_ROOT=$(COINORDIR)/$(OSINAME) \
 	     -DClp_ROOT=$(COINORDIR)/$(CLPNAME) \
-	     -DWHICH_OSI_QP=1 \
-	     -DWHICH_OSI_MP=1 \
 	     -DCMAKE_BUILD_TYPE=$(BUILD) \
 	     -DCMAKE_C_COMPILER=/usr/bin/clang \
 	     -DCMAKE_CXX_COMPILER=${P4R_INSTALL}/mpi/bin/mpicxx \
 	     -DCMAKE_INSTALL_PREFIX=$(INSTALLDIR_TMP)/$(PKGNAME)
+
+#Check if at least one commercial solver is used CPLEX or GUROBI - else switch OSI_MP and OSI_QP to some weird value
+NOMCOMSLV    := NOK
+# Support for various solvers
+ifeq ($(SOLVER),CPLEX)
+NOMCOMSLV := OK
+CMAKEFLAGS += -DCPLEX_ROOT=$(CPLEXDIR) -DWHICH_OSI_QP=1 -DWHICH_OSI_MP=1
+compile: $(CPLEXDIR)
+$(COINORDIR)/$(OSINAME): $(CPLEXDIR)
+else
+CMAKEFLAGS += -DMILPSolver_USE_CPLEX=OFF -UMCFClass_USE_CPLEX
+endif
+
+ifeq ($(SOLVER),GUROBI)
+NOMCOMSLV := OK
+CMAKEFLAGS += -DGUROBI_ROOT=$(GUROBIDIR) -DWHICH_OSI_QP=2 -DWHICH_OSI_MP=2
+compile: $(GUROBIDIR)
+else
+CMAKEFLAGS += -DMILPSolver_USE_GUROBI=OFF
+endif
+
+ifeq ($(NOMCOMSLV),NOK)
+CMAKEFLAGS += -DWHICH_OSI_QP=0 -DWHICH_OSI_MP=0
+endif
+
+ifeq ($(SOLVER),SCIP)
+CMAKEFLAGS += -DSCIP_DIR=$(SCIPDIR)/lib/cmake/scip -DMILPSolver_USE_SCIP=ON
+compile: $(SCIPDIR)
+else
+CMAKEFLAGS += -DMILPSolver_USE_SCIP=OFF
+endif
+
+ifeq ($(SOLVER),HiGHS)
+CMAKEFLAGS += -DHiGHS_ROOT=$(HiGHSDIR) -DMILPSolver_USE_HiGHS=ON
+compile: $(HiGHSDIR)
+else
+CMAKEFLAGS += -DMILPSolver_USE_HiGHS=OFF
+endif
+		 
 ifeq ($(SCIP),1)
 CMAKEFLAGS += -DSCIP_DIR=$(SCIPDIR)/lib/cmake/scip
 compile: $(SCIPDIR)
 endif
-compile: $(CPLEXDIR) $(STOPTDIR) $(PKGNAME)/$(UMBRELLA) | $(COINORDIR)/$(CLPNAME)
+compile: $(STOPTDIR) $(PKGNAME)/$(UMBRELLA) | $(COINORDIR)/$(CLPNAME)
 	@mkdir -p $(PKGNAME)/$(UMBRELLA)/$(BUILDDIR)
 	cd $(PKGNAME)/$(UMBRELLA)/$(BUILDDIR) && \
 	cmake $(CMAKEFLAGS) .. && \
@@ -159,12 +203,18 @@ $(COINORDIR)/$(CLPNAME): $(COINORDIR)/$(OSINAME)
 	--with-osi-lib="-L$(COINORDIR)/$(OSINAME)/lib -lOsi" \
 	--with-osi-incdir="$(COINORDIR)/$(OSINAME)/include/coin")
 
-$(COINORDIR)/$(OSINAME): $(COINORDIR)/$(COINNAME) $(CPLEXDIR)
+$(COINORDIR)/$(OSINAME): $(COINORDIR)/$(COINNAME)
+ifeq ($(SOLVER),CPLEX)
 	$(call coinor_install,$(OSINAME),$(OSIVER),\
 	--with-coinutils-lib="-L$(COINORDIR)/$(COINNAME)/lib -lCoinUtils" \
 	--with-coinutils-incdir="$(COINORDIR)/$(COINNAME)/include/coin" \
 	--with-cplex-lib="-L$(CPLEXDIR)/cplex/lib/x86-64_linux/static_pic -lcplex -lpthread -lm -ldl" \
 	--with-cplex-incdir="$(CPLEXDIR)/cplex/include/ilcplex")
+else
+	$(call coinor_install,$(OSINAME),$(OSIVER),\
+	--with-coinutils-lib="-L$(COINORDIR)/$(COINNAME)/lib -lCoinUtils" \
+	--with-coinutils-incdir="$(COINORDIR)/$(COINNAME)/include/coin")
+endif
 
 $(COINORDIR)/$(COINNAME):
 	$(call coinor_install,$(COINNAME),$(COINVER))
