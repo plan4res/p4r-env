@@ -111,11 +111,8 @@ CMAKEFLAGS = -Wno-dev \
 	     -DCMAKE_CXX_COMPILER=${P4R_INSTALL}/mpi/bin/mpicxx \
 	     -DCMAKE_INSTALL_PREFIX=$(INSTALLDIR_TMP)/$(PKGNAME)
 
-#Check if at least one commercial solver is used CPLEX or GUROBI - else switch OSI_MP and OSI_QP to some weird value
-NOMCOMSLV    := NOK
 # Support for various solvers
 ifeq ($(SOLVER),CPLEX)
-NOMCOMSLV := OK
 CMAKEFLAGS += -DCPLEX_ROOT=$(CPLEXDIR) -DWHICH_OSI_QP=1 -DWHICH_OSI_MP=1
 compile: $(CPLEXDIR)
 $(COINORDIR)/$(OSINAME): $(CPLEXDIR)
@@ -124,15 +121,10 @@ CMAKEFLAGS += -DMILPSolver_USE_CPLEX=OFF -UMCFClass_USE_CPLEX
 endif
 
 ifeq ($(SOLVER),GUROBI)
-NOMCOMSLV := OK
 CMAKEFLAGS += -DGUROBI_ROOT=$(GUROBIDIR) -DWHICH_OSI_QP=2 -DWHICH_OSI_MP=2
 compile: $(GUROBIDIR)
 else
 CMAKEFLAGS += -DMILPSolver_USE_GUROBI=OFF
-endif
-
-ifeq ($(NOMCOMSLV),NOK)
-CMAKEFLAGS += -DWHICH_OSI_QP=0 -DWHICH_OSI_MP=0
 endif
 
 ifeq ($(SOLVER),SCIP)
