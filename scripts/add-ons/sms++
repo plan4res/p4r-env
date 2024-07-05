@@ -42,10 +42,9 @@ CLPVER     := 1.17.6
 
 .PHONY: install update compile getdev clean status uninstall help
 
-VARHELP += " SOLVER=<CPLEX|GUROBI|SCIP> : Specify the SOLVER to use."
+VARHELP += " SOLVER=<CPLEX|GUROBI|SCIP> : Specify the SOLVER to use (Default=None)."
 VARHELP += " CPLEX=<CPLEX installer file> : Specify the CPLEX installer file."
 VARHELP += " BUILD=<Release or Debug>     : Specify the build mode (Release or Debug). Default is $(BUILD)."
-VARHELP += " SCIP=<0|1>                   : Link with SCIP if set to 1. Default is not to link."
 
 install: $(INSTALLDIR)/$(PKGNAME)
 $(INSTALLDIR)/$(PKGNAME): compile
@@ -70,17 +69,6 @@ HELP += "            Use BUILD=Release or Debug to choose build mode (default: R
 $(STOPTDIR):
 	@echo "No StOpt installation found at $@. Please install the stopt add-on first!"
 	@exit 1
-
-ifneq ($(SOLVER),CPLEX)
-	@echo "CPLEX will not be used"
-	@exit 1
-endif
-
-ifeq ($(SCIP),1)
-$(SCIPDIR):
-	@echo "No SCIPT installation found at $@. Please install the scip add-on first!"
-	@exit 1
-endif
 
 ifeq (,$(CPLEX))
 # If CPLEX variable is not set, then any previous CPLEX installation is reused
@@ -128,7 +116,13 @@ CMAKEFLAGS += -DMILPSolver_USE_GUROBI=OFF
 endif
 
 ifeq ($(SOLVER),SCIP)
-CMAKEFLAGS += -DSCIP_DIR=$(SCIPDIR)/lib/cmake/scip -DMILPSolver_USE_SCIP=ON
+$(SCIPDIR):
+	@echo "No SCIPT installation found at $@. Please install the scip add-on first!"
+	@exit 1
+#
+#
+#
+CMAKEFLAGS += -DSCIP_ROOT=$(SCIPDIR) -DMILPSolver_USE_SCIP=ON
 compile: $(SCIPDIR)
 else
 CMAKEFLAGS += -DMILPSolver_USE_SCIP=OFF
@@ -141,10 +135,6 @@ else
 CMAKEFLAGS += -DMILPSolver_USE_HiGHS=OFF
 endif
 		 
-ifeq ($(SCIP),1)
-CMAKEFLAGS += -DSCIP_DIR=$(SCIPDIR)/lib/cmake/scip
-compile: $(SCIPDIR)
-endif
 compile: $(STOPTDIR) $(PKGNAME)/$(UMBRELLA) | $(COINORDIR)/$(CLPNAME)
 	@mkdir -p $(PKGNAME)/$(UMBRELLA)/$(BUILDDIR)
 	cd $(PKGNAME)/$(UMBRELLA)/$(BUILDDIR) && \
