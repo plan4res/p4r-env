@@ -69,7 +69,6 @@ compile:
 	@cd $(PKGNAME)/$(PKGVER) && mkdir -p build && cd build && \
 	    cmake .. \
 	    	  -DBOOST_ROOT=${BOOST_PATH} \
-			  -DCMAKE_THREAD_LIBS_INIT="-lpthread"
 	    	  -DCMAKE_INSTALL_PREFIX=$(INSTALLDIR_TMP)/$(PKGNAME) -DCMAKE_BUILD_TYPE=Release -DSYM=bliss \
 	    	  -DBLISS_INCLUDE_DIR=$(CURDIR)/$(PKGNAME) \
 		      -DBLISS_LIBRARY=$(CURDIR)/$(PKGNAME)/$(BLISSPKG)/libbliss.a \
