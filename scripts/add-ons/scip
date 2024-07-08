@@ -4,10 +4,23 @@ SHELL = /bin/sh
 
 INSTALLDIR     = ${ADDONS_INSTALLDIR}
 INSTALLDIR_TMP = ${ADDONS_INSTALLDIR_TMP}
+CACHE_DIR      = ${ADDONS_CACHEDIR}
 MAKEFILE_NAME  = $(CURDIR)/$(word $(words $(MAKEFILE_LIST)),$(MAKEFILE_LIST))
 PKGNAME       := $(notdir $(MAKEFILE_NAME))
 
-PKGVER  := scipoptsuite-7.0.0
+# Possible versions and default
+ALLOWED_VERSION := 7.0.0 7.0.1 7.0.2 7.0.3 8.0.0 8.0.3 8.0.4 8.1.0 9.0.0
+VERREQ          ?= 7.0.0
+
+ifneq ($(filter $(VERREQ),$(ALLOWED_VERSION)),)
+    $(info supported version $(VERREQ) among $(ALLOWED_VERSION))
+else
+    $(info unsupported version $(VERREQ) / supported versions are $(ALLOWED_VERSION))
+	@exit 1
+endif
+
+# SCIP version and URL
+PKGVER  := scipoptsuite-$(VERREQ)
 PKGURL  := https://scipopt.org/download.php?fname=$(PKGVER).tgz
 
 # BLISS: http://www.tcs.tkk.fi/Software/bliss/index.html
@@ -18,25 +31,26 @@ BLISSURL := http://www.tcs.hut.fi/Software/bliss/$(BLISSPKG).zip
 IPOPTPKG := Ipopt-3.12.13
 IPOPTURL := https://www.coin-or.org/download/source/Ipopt/$(IPOPTPKG).tgz
 
-.PHONY: install check status clean uninstall help
+.PHONY: install check compile status clean uninstall help
 
-define compile
-	@cd $(PKGNAME)/$(PKGVER) && mkdir -p build && cd build && \
-	    cmake .. \
-	    	  -DBOOST_ROOT=${BOOST_PATH} \
-	    	  -DCMAKE_INSTALL_PREFIX=$(INSTALLDIR_TMP)/$(PKGNAME) -DCMAKE_BUILD_TYPE=Release -DSYM=bliss \
-	    	  -DBLISS_INCLUDE_DIR=$(CURDIR)/$(PKGNAME) \
-		  -DBLISS_LIBRARY=$(CURDIR)/$(PKGNAME)/$(BLISSPKG)/libbliss.a && \
-	    make $1
+#define compile
+#	@cd $(PKGNAME)/$(PKGVER) && mkdir -p build && cd build && \
+#	    cmake .. \
+#	    	  -DBOOST_ROOT=${BOOST_PATH} \
+#	    	  -DCMAKE_INSTALL_PREFIX=$(INSTALLDIR_TMP)/$(PKGNAME) -DCMAKE_BUILD_TYPE=Release -DSYM=bliss \
+#	    	  -DBLISS_INCLUDE_DIR=$(CURDIR)/$(PKGNAME) \
+#		  -DBLISS_LIBRARY=$(CURDIR)/$(PKGNAME)/$(BLISSPKG)/libbliss.a \
+#		  -DIPOPT=on -DIPOPT_DIR=$(CURDIR)/$(PKGNAME)/$(IPOPTPKG)/Ipopt && \
+#	    make $1 
 #		  -DIPOPT=on -DIPOPT_DIR=$(CURDIR)/$(PKGNAME)/$(IPOPTPKG)/Ipopt
-endef
+#endef
 
 install: $(INSTALLDIR)/$(PKGNAME)
-$(INSTALLDIR)/$(PKGNAME): $(PKGNAME)/$(PKGVER) $(PKGNAME)/$(BLISSPKG) $(PKGNAME)/$(IPOPTPKG)
+$(INSTALLDIR)/$(PKGNAME): $(PKGNAME)/$(PKGVER) $(PKGNAME)/$(BLISSPKG) $(PKGNAME)/$(IPOPTPKG) compile
 	@echo "Install $(PKGNAME) add-on"
 	@rm -rf $(INSTALLDIR_TMP)/$(PKGNAME)
 	@mkdir -p $(INSTALLDIR_TMP)/$(PKGNAME)
-	$(call compile, install)
+	@cd $(CACHE_DIR)/$(PKGNAME)/$(PKGVER)/build && make -j$(getconf _NPROCESSORS_ONLN) install	
 	@cp $(PKGNAME)/$(BLISSPKG)/bliss $(INSTALLDIR_TMP)/$(PKGNAME)/bin
 	@cp $(PKGNAME)/$(BLISSPKG)/libbliss.a $(INSTALLDIR_TMP)/$(PKGNAME)/lib
 	@mkdir -p $(INSTALLDIR_TMP)/$(PKGNAME)/include/bliss && cp $(PKGNAME)/$(BLISSPKG)/*.h* $(INSTALLDIR_TMP)/$(PKGNAME)/include/bliss
@@ -48,6 +62,20 @@ ifneq ($(INSTALLDIR),$(INSTALLDIR_TMP))
 	@rm -rf $(INSTALLDIR_TMP)/$(PKGNAME)
 endif
 HELP += "  install : Install $(PKGNAME) add-on"
+HELP += "             Use VERREQ=xyz to take a specific SCIP VERSION. The script limits to the current SMS++ supported versions." ####
+HELP += "             The versions can be readily extended by generating the appropriate _def and _maps files in SMS++, if need be." ####
+
+compile:
+	@cd $(PKGNAME)/$(PKGVER) && mkdir -p build && cd build && \
+	    cmake .. \
+	    	  -DBOOST_ROOT=${BOOST_PATH} \
+			  -DCMAKE_THREAD_LIBS_INIT="-lpthread"
+	    	  -DCMAKE_INSTALL_PREFIX=$(INSTALLDIR_TMP)/$(PKGNAME) -DCMAKE_BUILD_TYPE=Release -DSYM=bliss \
+	    	  -DBLISS_INCLUDE_DIR=$(CURDIR)/$(PKGNAME) \
+		      -DBLISS_LIBRARY=$(CURDIR)/$(PKGNAME)/$(BLISSPKG)/libbliss.a \
+		      -DIPOPT=on -DIPOPT_DIR=$(CURDIR)/$(PKGNAME)/$(IPOPTPKG)/Ipopt
+#	    make install 
+#		  -DIPOPT=on -DIPOPT_DIR=$(CURDIR)/$(PKGNAME)/$(IPOPTPKG)/Ipopt
 
 check: $(PKGNAME)/$(PKGVER)/scip/bin
 	@echo "Check $(PKGNAME) add-on"
