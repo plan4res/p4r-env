@@ -24,8 +24,16 @@ BUILDDIR   := build_$(BUILD)
 STOPTDIR   := $(INSTALLDIR)/stopt
 SCIPDIR    := $(INSTALLDIR)/scip
 
+# HiGHS installation directory
+HIGHSDIR   := $(INSTALLDIR)/HiGHS
+
 # CPLEX Installation directory
 CPLEXDIR   := $(INSTALLDIR_TMP)/cplex
+
+# GUROBI Installation directory
+GUROBIDIR  := $(INSTALLDIR_TMP)/gurobi
+# Extract Gurobi version from the file name
+GRBVER      = $(subst _linux64.tar.gz,,$(subst gurobi,,${GRBF}))
 
 # CoinUtils, Osi installations
 COINORURL  := https://www.coin-or.org/download/source
@@ -42,8 +50,9 @@ CLPVER     := 1.17.6
 
 .PHONY: install update compile getdev clean status uninstall help
 
-VARHELP += " SOLVER=<CPLEX|GUROBI|SCIP> : Specify the SOLVER to use (Default=None)."
+VARHELP += " SOLVER=<CPLEX|GUROBI|SCIP|HiGHS> : Specify the SOLVER to use (Default=None)."
 VARHELP += " CPLEX=<CPLEX installer file> : Specify the CPLEX installer file."
+VARHELP += " GRBF=<GUROBI installer file> : Specify the GUROBI installer file."
 VARHELP += " BUILD=<Release or Debug>     : Specify the build mode (Release or Debug). Default is $(BUILD)."
 
 install: $(INSTALLDIR)/$(PKGNAME)
@@ -70,6 +79,7 @@ $(STOPTDIR):
 	@echo "No StOpt installation found at $@. Please install the stopt add-on first!"
 	@exit 1
 
+# CPLEX installation
 ifeq (,$(CPLEX))
 # If CPLEX variable is not set, then any previous CPLEX installation is reused
 update: uninstall_keep_cplex | install
@@ -80,6 +90,19 @@ keep_cplex:
 else
 update: uninstall | install
 endif
+
+# GUROBI part
+ifeq (,$(GRBF))
+# If GRBF variable is not set, then any previous GUROBI installation is reused
+update: uninstall_keep_grb | install
+uninstall_keep_grb: keep_grb | uninstall
+	@if test -d "$(GUROBIDIR).bak" ; then mv $(GUROBIDIR).bak $(GUROBIDIR) ; fi
+keep_grb:
+	@if test -d "$(GUROBIDIR)" ; then mv $(GUROBIDIR) $(GUROBIDIR).bak ; fi
+else
+update: uninstall | install
+endif
+
 HELP += "   update : Update and re-install $(PKGNAME) add-on. StOpt add-on must be installed first."
 HELP += "            Use SCIP=1 to link with it (must be installed first)." ####
 HELP += "            Keep previous CPLEX installation (if any), otherwise required to specific CPLEX=<CPLEX installer file>."  ####
@@ -111,6 +134,7 @@ endif
 ifeq ($(SOLVER),GUROBI)
 CMAKEFLAGS += -DGUROBI_ROOT=$(GUROBIDIR) -DWHICH_OSI_QP=2 -DWHICH_OSI_MP=2
 compile: $(GUROBIDIR)
+$(COINORDIR)/$(OSINAME): $(GUROBIDIR)
 else
 CMAKEFLAGS += -DMILPSolver_USE_GUROBI=OFF
 endif
@@ -129,7 +153,7 @@ CMAKEFLAGS += -DMILPSolver_USE_SCIP=OFF
 endif
 
 ifeq ($(SOLVER),HiGHS)
-CMAKEFLAGS += -DHiGHS_ROOT=$(HiGHSDIR) -DMILPSolver_USE_HiGHS=ON
+CMAKEFLAGS += -DHiGHS_ROOT=$(HIGHSDIR) -DMILPSolver_USE_HiGHS=ON
 compile: $(HiGHSDIR)
 else
 CMAKEFLAGS += -DMILPSolver_USE_HiGHS=OFF
@@ -192,10 +216,16 @@ ifeq ($(SOLVER),CPLEX)
 	--with-coinutils-incdir="$(COINORDIR)/$(COINNAME)/include/coin" \
 	--with-cplex-lib="-L$(CPLEXDIR)/cplex/lib/x86-64_linux/static_pic -lcplex -lpthread -lm -ldl" \
 	--with-cplex-incdir="$(CPLEXDIR)/cplex/include/ilcplex")
-else
+else ifeq ($(SOLVER),GUROBI)
 	$(call coinor_install,$(OSINAME),$(OSIVER),\
 	--with-coinutils-lib="-L$(COINORDIR)/$(COINNAME)/lib -lCoinUtils" \
-	--with-coinutils-incdir="$(COINORDIR)/$(COINNAME)/include/coin")
+	--with-coinutils-incdir="$(COINORDIR)/$(COINNAME)/include/coin" \
+	--with-gurobi-lib="-L$(GUROBIDIR)/gurobi$(GRBVER)/linux64/lib -lpthread -lm -ldl" \
+	--with-gurobi-incdir="$(GUROBIDIR)/gurobi$(GRBVER)/linux64/include")
+else 
+	$(call coinor_install,$(OSINAME),$(OSIVER),\
+	--with-coinutils-lib="-L$(COINORDIR)/$(COINNAME)/lib -lCoinUtils" \
+	--with-coinutils-incdir="$(COINORDIR)/$(COINNAME)/include/coin") 
 endif
 
 $(COINORDIR)/$(COINNAME):
@@ -220,6 +250,23 @@ $(CPLEXDIR):
 	else	       				   		  \
 		echo "Installation file for CPLEX not found!" ;	\
 		echo "Check the CPLEX variable!" ;     		\
+		exit 1 ;	    	    			\
+	fi
+
+#####################
+# GUROBI Installation
+#####################
+$(GUROBIDIR):	
+	@if test -f ${PLAN4RESROOT}/$(GRBF); then \
+		if !(test -d ${GUROBIDIR}); then mkdir -p $(GUROBIDIR) ; fi ;\
+		cp $(wildcard $(PLAN4RESROOT)/*.lic) $(GUROBIDIR)/gurobi.lic ; \
+	   	cp ${PLAN4RESROOT}/$(GRBF) $(GUROBIDIR)/$(GRBF) ; \
+		cd $(GUROBIDIR) ; \
+		tar xvf $(GRBF) ; \
+		rm -rf $(GUROBIDIR)/$(GRBF) ; \
+	else	       				   		  \
+		echo "Installation file for GUROBI not found!" ;	\
+		echo "Check the GRBF variable!" ;     		\
 		exit 1 ;	    	    			\
 	fi
 
