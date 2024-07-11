@@ -131,8 +131,14 @@ else
 CMAKEFLAGS += -DMILPSolver_USE_CPLEX=OFF -UMCFClass_USE_CPLEX
 endif
 
+# If the Gurobi file GRBF is not specified, the version can not be deduced from the filename but is immediately "grasped" from the installed version
+#
 ifeq ($(SOLVER),GUROBI)
+ifeq ($(origin GRBF),undefined)
+CMAKEFLAGS += -DGUROBI_ROOT=$(realpath $(wildcard $(GUROBIDIR)/gurobi*)) -DWHICH_OSI_QP=2 -DWHICH_OSI_MP=2
+else
 CMAKEFLAGS += -DGUROBI_ROOT=$(GUROBIDIR)/gurobi$(GRBVER) -DWHICH_OSI_QP=2 -DWHICH_OSI_MP=2
+endif
 compile: $(GUROBIDIR)
 $(COINORDIR)/$(OSINAME): $(GUROBIDIR)
 else
