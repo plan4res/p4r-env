@@ -12,8 +12,8 @@ SCIP       ?= 0
 
 SOLVER     ?= None
 
-PKGURL     := https://gitlab.com/smspp
-UMBRELLA   := smspp-project
+PKGURL     := https://github.com/plan4res
+UMBRELLA   := Umbrella
 
 # Copy binaries and examples from these sub-modules
 UCBLOCK    := UCBlock
@@ -179,7 +179,8 @@ $(PKGNAME)/$(UMBRELLA):
 	@rm -rf $(dir $@)
 	git config --global credential.helper 'cache --timeout=500' # avoid to repeat password per each submodule
 	git clone --recurse-submodules $(PKGURL)/$(notdir $@).git $@
-	cd $@ && git submodule update --init --recursive
+	cd $@ && git checkout plan4res && git submodule update --init --recursive &&\
+	git submodule foreach --recursive "git checkout plan4res || git checkout master"
 # Use specific commit
 #	@cd $@ && git checkout 57bc84967280c0d6a09884566d7fbba8a33ec8ce && git submodule update --init --recursive
 
