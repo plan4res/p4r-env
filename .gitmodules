@@ -1,0 +1,3 @@
+[submodule "scripts/python/openentrance"]
+	path = scripts/python/openentrance
+	url = https://github.com/openENTRANCE/openentrance
