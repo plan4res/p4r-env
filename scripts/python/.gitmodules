@@ -1,3 +1,7 @@
 [openentrance]
 	path = openentrance/
 	url = https://github.com/openENTRANCE/openentrance
+[plan4res-scripts]
+        path = plan4res-scripts/
+        url = https://github.com/plan4res/plan4res-scripts
+

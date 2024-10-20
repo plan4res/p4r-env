@@ -1,3 +1,6 @@
 [submodule "scripts/python/openentrance"]
 	path = scripts/python/openentrance
 	url = https://github.com/openENTRANCE/openentrance
+[submodule "scripts/python/plan4res-scripts"]
+	path = scripts/python/plan4res-scripts
+	url = https://github.com/plan4res/plan4res-scripts
