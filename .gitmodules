@@ -4,3 +4,6 @@
 [submodule "scripts/python/plan4res-scripts"]
 	path = scripts/python/plan4res-scripts
 	url = https://github.com/plan4res/plan4res-scripts
+[submodule "scripts/include"]
+	path = scripts/include
+	url = https://github.com/plan4res/include
