@@ -184,6 +184,12 @@ $(PKGNAME)/$(UMBRELLA):
 # Use specific commit
 #	@cd $@ && git checkout 57bc84967280c0d6a09884566d7fbba8a33ec8ce && git submodule update --init --recursive
 
+get: $(PKGNAME)/$(UMBRELLA)
+	@rm -rf $(dir $@)
+	git config --global credential.helper 'cache --timeout=500' # avoid to repeat password per each submodule
+	git clone --recurse-submodules $(PKGURL)/$(notdir $@).git $@
+	cd $@ && git checkout plan4res && git submodule update --init --recursive &&\
+	git submodule foreach --recursive "git checkout plan4res || git checkout master"
 getdev: $(PKGNAME)/$(UMBRELLA)
 	@cd $(PKGNAME)/$(UMBRELLA) && git fetch && git checkout develop && git pull origin develop && \
 	git submodule update --init --recursive && \
