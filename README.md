@@ -20,7 +20,6 @@ To see a list of the supported add-ons, you can run the command: `bin/p4r add-on
 Updating image - if you want to avoid this set 'P4R_SINGULARITY_IMAGE_PRESERVE=1' in plan4res.conf
 No add-on specified. The following add-on recipes are known or already installed:
 scip    : not installed
-udj     : not installed
 stopt   : not installed
 sms++   : not installed
 
@@ -35,68 +34,33 @@ P4R-ENV shell (open with `bin/p4r` command and then `cd $ADDONS_INSTALLDIR`).
 
 To install the [SMS++](https://gitlab.com/smspp/smspp-project) add-on, run the following commands:
 * Install StOpt add-on via: ` bin/p4r add-on stopt`
-* Download CPLEX installer and put into p4r-env directory. It has to be a Linux version (with extension `.bin`)
-* Install SMS++ via ` bin/p4r add-on sms++ CPLEX=<cplex installer>.bin`. It will ask you the login and password to access the SMS++ gitlab repo. Check with SMS++ authors if you are not in the authorized list to access the repo (check if you can access to the [SMS++](https://gitlab.com/smspp/smspp-project) webpage).
+* For an install with CPLEX: Download CPLEX installer and put into p4r-env directory. It has to be a Linux version (with extension `.bin`)
+* For an install with GUROBI: Download GUROBI licence and put into p4r-env directory.
+* For an install with SCIP, install scip add-on first with bin/p4r add-on scip
+* Install SMS++ via ` bin/p4r add-on sms++ SOLVER=<solver> CPLEX=<cplex installer>.bin` GRBF=<gurobi licence>
+  solver can be: 
+  for CPEX provide the installer with CPLEX=<cplex installer>; for GUROBI provide the licence with 
 
-Once the installation is done, you can test the SMS++ installation by running some examples:
-* Open a shell within the container via `bin/p4r`
-* Example 1:
-  * `cd $ADDONS_INSTALLDIR/sms++/examples/ucblock/netCDF_files/1UC_Data/24/`
-  * `thermalunit_solver S12ramp10_24.nc4`
-```
-Using a default Solver configuration
-Solver: CPXMILPSolver
-Elapsed time: 1.26998274e-01 s
-Status = 10 (Success)
-Upper bound = 2.59073640e+03
-Lower bound = 2.59073640e+03
-```
-* Example 2
-  * `cd $ADDONS_INSTALLDIR/sms++/examples/ucblock/netCDF_files/UC_Data/T-Ramp/`
-  * `ucblock_solver 10_0_1_w.nc4`
-
-Other available commands for the SMS++ add-on are:
-```
+Get the SMS++ help with: 
 > bin/p4r add-on sms++ help
-Updating image - if you want to avoid this set 'P4R_SINGULARITY_IMAGE_PRESERVE=1' in plan4res.conf
-Targets for sms++ add-on (first target as default):
-     install : Install sms++ add-on. Need to specify CPLEX=<CPLEX installer file>. StOpt add-on must be installed first.
-               Use SCIP=1 to link with it (must be installed first).
-               Use BUILD=Release or Debug to choose build mode (default: Release).
-      update : Update and re-install sms++ add-on. StOpt add-on must be installed first.
-               Use SCIP=1 to link with it (must be installed first).
-               Keep previous CPLEX installation (if any), otherwise required to specific CPLEX=<CPLEX installer file>.
-     compile : Compile sms++ add-on (no installation). Need to specify CPLEX=<CPLEX installer file>. StOpt add-on must be installed first.
-               Use SCIP=1 to link with it (must be installed first).
-               Use BUILD=Release or Debug to choose build mode (default: Release).
-      getdev : Pull the sms++ develop branch.
-       clean : Clean the sms++ build directory.
-      status : Print sms++ version
-   uninstall : Remove sms++ build and installation directories
-        help : This help
+
 Variables for sms++ add-on:
-    CPLEX=<CPLEX installer file> : Specify the CPLEX installer file.
+    SOLVER=<solver> : Specify the solver used among CPLEX, GUROBI, SCIP, HiGHS
+    CPLEX=<CPLEX installer file> : Specify the CPLEX installer file; only for solver=CPLEX.
+    GRBF=<gurobu licence> : Specify the GUROBI licence (only for solver=GUROBI.
     BUILD=<Release or Debug>     : Specify the build mode (Release or Debug). Default is Release.
-    SCIP=<0|1>                   : Link with SCIP if set to 1. Default is not to link.
-```
 
 **Run with MPI**
 
 The `p4r-env` can be executed via MPI, e.g.:
 ```
 > P4R_CMD="mpirun -np 2" bin/p4r mpitest
-Updating image - if you want to avoid this set 'P4R_SINGULARITY_IMAGE_PRESERVE=1' in plan4res.conf
-2
 ```
 Here, `P4R_CMD` is used to set the run command for MPI and `mpitest` is a small MPI test program that returns the number of ranks.
 Note that it is not possible to open a shell with the MPI execution, i.e. `P4R_CMD="mpirun -np 2" bin/p4r` will ignore the MPI submission and open a shell within the container.
 
 **NOTE:** Only for Linux, it is possible to specificy the MPI implementation to use (MPICH or OpenMPI) by setting the variable `P4R_MPI_IMP` in the file `config/plan4res.conf`
 during the installation. This is needed to ensure compatibility with the MPI implementation on the host system.
-
-**Access to MarketLab (MKL)**
-
-Currently, no demo is available to access (MKL). Need to register your credentials in the fle `config/marketlab.conf`. You can use the [marketlab.conf.template](config/marketlab.conf.template) as template.
 
 **Update the p4r-env environment**
 
@@ -110,7 +74,6 @@ Currently, no demo is available to access (MKL). Need to register your credentia
 If during the installation of an add-on you get an error to access the repository (e.g. `remote: The project you were looking for could not be found.`),
 please check with the author of repository that you have access (you can check if you can access the webpage).
 For any other add-on error, please make sure you run `uninstall` (or `update`) before any new re-installation.
-
 
 ## Windows
 
@@ -131,7 +94,7 @@ On many systems, the hardware virtualization features first need to be enabled i
 
 * Run the Git bash
 * `cd` # Move to the local user home directory (e.g. /c/Users/\<your login\>), you can change directory to a more appropriate one
-* If your network uses a **proxy** (e.g. at EDF), set the following variables in the shell:
+* If your network uses a **proxy**, set the following variables in the shell:
 ```
 export http_proxy = <proxy address>:<port>
 export https_proxy = ${http_proxy}
