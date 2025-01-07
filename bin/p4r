@@ -197,9 +197,6 @@ else
 	    echo
 	    echo "    Special commands:"
 	    echo "             add-on : Run add-ons (run without any option to get help)"
-	    echo "            run-cs1 : Case-study 1 driver script"
-	    echo "            run-cs2 : Case-study 2 driver script"
-	    echo "            run-cs3 : Case-study 3 driver script"
 	    echo
 	    exit 0
 	    ;;
