@@ -128,7 +128,7 @@ CMAKEFLAGS += -DCPLEX_ROOT=$(CPLEXDIR) -DWHICH_OSI_QP=1 -DWHICH_OSI_MP=1
 compile: $(CPLEXDIR)
 $(COINORDIR)/$(OSINAME): $(CPLEXDIR)
 else
-CMAKEFLAGS += -DMILPSolver_USE_CPLEX=OFF -UMCFClass_USE_CPLEX
+CMAKEFLAGS += -DMILPSolver_USE_CPLEX=OFF -UMCFClass_USE_CPLEX -DMCFClass_USE_CPLEX=OFF
 endif
 
 # If the Gurobi file GRBF is not specified, the version can not be deduced from the filename but is immediately "grasped" from the installed version
