@@ -67,7 +67,7 @@ EOF
     fi
 
 # Specific installations depending on MPI library
-%post -c /bin/bash
+%post
 
     cat /p4r/plan4res_conf.sh >> ${SINGULARITY_ENVIRONMENT}
     . ${SINGULARITY_ENVIRONMENT}
@@ -174,9 +174,14 @@ EOF
     echo 'export BOOST_PATH=${P4R_INSTALL}/boost' >> ${SINGULARITY_ENVIRONMENT}
     echo 'export LD_LIBRARY_PATH=${LD_LIBRARY_PATH}:${BOOST_PATH}/lib' >> ${SINGULARITY_ENVIRONMENT}
 
+	python3 -m pip install netCDF4
+    python3 -m pip install pyam-iamc
+								  
+									
+
 # Update prompt
-%post -c /bin/bash
-    CUSTOM_ENV=$(dirnname ${SINGULARITY_ENVIRONMENT})/99-zz_custom_env.sh
+%post
+    CUSTOM_ENV=$(dirname ${SINGULARITY_ENVIRONMENT})/99-zz_custom_env.sh
     cat >$CUSTOM_ENV <<EOF
 #!/bin/bash
 PS1="[P4R-ENV] \w > "
@@ -218,3 +223,4 @@ EOF
     export ADLB_SERVERS=1
     export ADLB_PRINT_TIME=1
     mpiexec ${MPIFLAGS} -n 4 turbine ${TMPDIR}/test1.tic
+
