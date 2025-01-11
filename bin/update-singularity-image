@@ -85,7 +85,7 @@ if test ! -f ${P4R_CACHEDIR}/${P4R_CONTAINER_NAME}.sif \
 	if test ${force_download:-0} -eq 1 -o ${CHECKERR} -ne 0 -o ! -f ${P4R_CACHEDIR}/${P4R_CONTAINER_NAME}.sif ; then
 	    trace "Image definition changed (or missing image), updating SIF image"
 	    rm -f ${P4R_CACHEDIR}/${P4R_CONTAINER_NAME}.sif
-	    curl --create-dirs -o ${P4R_CACHEDIR}/${P4R_CONTAINER_NAME}.sif \
+	    curl -L --create-dirs -o ${P4R_CACHEDIR}/${P4R_CONTAINER_NAME}.sif \
 	         "${P4R_SINGULARITY_IMAGE_IMG_URL:?P4R_SINGULARITY_IMAGE_IMG_URL not set}"
 	    # Update cached definition file
 	    mv ${P4R_CACHEDIR}/plan4res_base.def ${P4R_CACHEDIR}/plan4res_base.def.cached
