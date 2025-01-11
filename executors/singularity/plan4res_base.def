@@ -32,13 +32,6 @@ From: debian:bullseye
                            requests requests-toolbelt \
                            rtree pygeos wheel
 
-    # Install swift dependencies (see http://swift-lang.github.io/swift-t/guide.html#install_source)
-    apt-get -y install --no-install-recommends \
-	               tcl8.6 tcl8.6-dev swig zsh ant
-
-    # Install transformation tool requirements
-    apt-get -y install --no-install-recommends libxerces-c-dev xsdcxx
-
     # CLANG (used by SMS++)
     apt-get -y install --no-install-recommends clang libomp-dev
 
@@ -63,9 +56,6 @@ From: debian:bullseye
     update-alternatives --config python
     apt-get clean && rm -rf /var/lib/apt/lists/* # do not forget to clean!
     chmod -R a+w /var/cache
-
-    curl -O https://beta.quicklisp.org/quicklisp.lisp
-    (echo "(quicklisp-quickstart:install)") | sbcl --load quicklisp.lisp
 
     export P4R_INSTALL=/p4r/install_singularity
     echo "export P4R_INSTALL=${P4R_INSTALL}" >> ${SINGULARITY_ENVIRONMENT}
