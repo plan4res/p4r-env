@@ -20,6 +20,7 @@ To see a list of the supported add-ons, you can run the command: `bin/p4r add-on
 Updating image - if you want to avoid this set 'P4R_SINGULARITY_IMAGE_PRESERVE=1' in plan4res.conf
 No add-on specified. The following add-on recipes are known or already installed:
 scip    : not installed
+highs   : not installed
 stopt   : not installed
 sms++   : not installed
 
@@ -37,9 +38,10 @@ To install the [SMS++](https://gitlab.com/smspp/smspp-project) add-on, run the f
 * For an install with CPLEX: Download CPLEX installer and put into p4r-env directory. It has to be a Linux version (with extension `.bin`)
 * For an install with GUROBI: Download GUROBI licence and put into p4r-env directory.
 * For an install with SCIP, install scip add-on first with bin/p4r add-on scip
+* For an install with HiGHS, install scip add-on first with bin/p4r add-on highs
 * Install SMS++ via ` bin/p4r add-on sms++ SOLVER=<solver> CPLEX=<cplex installer>.bin` GRBF=<gurobi licence>
-  solver can be: 
-  for CPEX provide the installer with CPLEX=<cplex installer>; for GUROBI provide the licence with 
+  solver can be: CPLEX, GUROBI, SCIP, HiGHS
+  for CPEX provide the installer with CPLEX=<cplex installer>; for GUROBI provide the installer with GRBF=<gurobi installer> and copy the licence in p4r-env
 
 Get the SMS++ help with: 
 > bin/p4r add-on sms++ help
@@ -47,7 +49,7 @@ Get the SMS++ help with:
 Variables for sms++ add-on:
     SOLVER=<solver> : Specify the solver used among CPLEX, GUROBI, SCIP, HiGHS
     CPLEX=<CPLEX installer file> : Specify the CPLEX installer file; only for solver=CPLEX.
-    GRBF=<gurobu licence> : Specify the GUROBI licence (only for solver=GUROBI.
+    GRBF=<gurobu licence> : Specify the GUROBI installer file (only for solver=GUROBI.
     BUILD=<Release or Debug>     : Specify the build mode (Release or Debug). Default is Release.
 
 **Run with MPI**
@@ -205,7 +207,7 @@ This is needed to ensure compatibility with the MPI implementation on the host s
 ### Execution (test)
 
 * Open the Terminal
-* `git clone --recursive https://gitlab.com/cerl/plan4res/p4r-env`
+* `git clone --recursive https://github.com/plan4res/p4r-env`
 * `cd p4r-env`
 * `git config submodule.recurse true`
 * `bin/p4r -t` # Check that there are no errors
