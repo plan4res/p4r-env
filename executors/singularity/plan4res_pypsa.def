@@ -1,0 +1,93 @@
+Bootstrap: localimage
+From: sandbox_plan4res
+
+%environment
+    export LC_ALL="en_US.UTF-8"
+    export PYTHONNOUSERSITE=1
+
+%runscript
+    export PLAN4RESROOT=${PLAN4RESROOT:-${PWD}}
+    export PATH=${PLAN4RESROOT}/bin:${PLAN4RESROOT}/scripts:${PLAN4RESROOT}/site/bin:${PATH}
+    if test -n "${HOST_LD_LIBRARY_PATH}" ; then
+		export LD_LIBRARY_PATH=${HOST_LD_LIBRARY_PATH}:${LD_LIBRARY_PATH}
+    fi
+    export LD_LIBRARY_PATH=${PLAN4RESROOT}/site/lib:${LD_LIBRARY_PATH}
+    export MANPATH=${PLAN4RESROOT}/site/man:${MANPATH}
+    # Set temporary directory
+    if test -z "${TMPDIR+x}"; then
+        export TMPDIR=/tmp
+    fi
+    export TMPDIR=${TMPDIR}/singularity_${USER}
+    #export SWIFT_TMP=${TMPDIR}
+	
+    # Make temporary directory
+    mkdir -p ${TMPDIR}
+
+    # Load add-ons path
+    if test -d "${ADDONS_INSTALLDIR}"; then
+		for d in `find ${ADDONS_INSTALLDIR} -type d -name "bin" ! -path '*/cplex/*'`; do export PATH=$d:${PATH}; done
+		for d in `find ${ADDONS_INSTALLDIR} -type d -name "lib" ! -path '*/cplex/*'`; do export LD_LIBRARY_PATH=$d:${LD_LIBRARY_PATH}; done
+    fi
+
+    if test ${P4R_TRACE:-0} -ne 0; then
+		echo "Singularity run script entered, Arguments: \"$*\""
+    fi
+    if test $# -eq 0 || test -z "$@" ; then
+		echo ";; No tool specified to run. Starting a shell inside the container."
+		echo ";; If this is not what you intended, specify the command to invoke on the command line of the p4r script."
+		echo ";; Run 'p4r -h' to get help."
+		bash -norc
+    else
+		# pass arguments to exec
+		sh -c "$@"
+    fi
+    if test ${P4R_TRACE:-0} -ne 0; then
+		echo "Singularity run script terminating"
+    fi
+
+%setup
+    # take external configuration
+    if test -f plan4res_conf.sh; then
+		cp plan4res_conf.sh ${SINGULARITY_ROOTFS}/p4r
+    else
+		# Default configuration
+		cat > ${SINGULARITY_ROOTFS}/p4r/plan4res_conf.sh <<EOF
+		export MPI_DIST="OpenMPI"
+EOF
+    fi
+	
+%post
+	cat /p4r/plan4res_conf.sh >> ${SINGULARITY_ENVIRONMENT}
+    . ${SINGULARITY_ENVIRONMENT}
+	
+	echo "P4R_INSTALL=${P4R_INSTALL}"
+	cd ${P4R_INSTALL}
+	
+	curl -L -o julia.tar.gz https://julialang-s3.julialang.org/bin/linux/x64/1.11/julia-1.11.5-linux-x86_64.tar.gz
+	tar -xzf julia.tar.gz
+	rm julia.tar.gz
+	ln -s ${P4R_INSTALL}/julia-1.11.5/bin/julia /usr/local/bin/julia
+	echo 'export JULIA_PATH=${P4R_INSTALL}/julia-1.11.5' >> ${SINGULARITY_ENVIRONMENT}
+	echo 'export PATH=${JULIA_PATH}/bin:$PATH' >> ${SINGULARITY_ENVIRONMENT}
+	. ${SINGULARITY_ENVIRONMENT}
+	
+	JULIA_DIR=${P4R_INSTALL}/julia-1.11.5
+	rm -rf "${JULIA_DIR}/share/doc"
+	rm -rf "${JULIA_DIR}/share/man"
+	rm -rf "${JULIA_DIR}/lib/julia/test"
+	rm -rf "${JULIA_DIR}/share/julia/examples"
+	rm -rf "${JULIA_DIR}/lib/julia/python*"
+	rm -rf "${JULIA_DIR}/lib/julia/*Py*"
+	rm -rf "${JULIA_DIR}/lib/julia/*_py*"
+	rm -rf ${JULIA_DIR}/lib/julia/stdlib/*/test
+	rm -rf ${JULIA_DIR}/lib/julia/stdlib/*/docs
+	rm -rf ${JULIA_DIR}/lib/julia/stdlib/*/examples
+
+# Update prompt
+%post
+    CUSTOM_ENV=$(dirname ${SINGULARITY_ENVIRONMENT})/99-zz_custom_env.sh
+    cat >$CUSTOM_ENV <<EOF
+#!/bin/bash
+PS1="[P4R-ENV] \w > "
+EOF
+    chmod 755 $CUSTOM_ENV
